@@ -31,5 +31,6 @@ def setup_logging() -> None:
     root.handlers = [handler]
     root.setLevel(settings.LOG_LEVEL)
     logging.getLogger("telethon").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    for noisy in ("httpx", "httpx2", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     root._bozorpilot = True  # type: ignore[attr-defined]
