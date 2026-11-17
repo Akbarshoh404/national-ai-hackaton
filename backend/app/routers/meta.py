@@ -6,18 +6,20 @@ from fastapi import APIRouter
 from sqlalchemy import select, text
 
 from app import catalog
-from app.config import settings
-from app.deps import DbDep
-from app.models import Company
+from app.config import CREDIT_PRODUCTS, settings
+from app.deps import DbDep, OptionalCompanyDep
+from app.models import Company, Store
 from app.schemas.auth import (
     AttrField,
     CodeLabel,
     ComponentStatus,
+    CreditProductMeta,
     CurrencyFormat,
     DemoCompany,
     HealthResponse,
     LabelSet,
     MetaResponse,
+    StoreRef,
 )
 from app.services import fx, llm, workers
 
@@ -30,7 +32,7 @@ def _cl(table: dict[str, dict[str, str]], codes: list[str]) -> list[CodeLabel]:
 
 
 @router.get("/meta", response_model=MetaResponse)
-def meta_get(db: DbDep) -> MetaResponse:
+def meta_get(db: DbDep, company: OptionalCompanyDep) -> MetaResponse:
     """Everything the frontend needs for dropdowns, labels and formatting."""
     demo = []
     if settings.DEMO_MODE:
@@ -44,7 +46,7 @@ def meta_get(db: DbDep) -> MetaResponse:
         expense_categories=_cl(catalog.TXN_CATEGORY_LABELS, catalog.EXPENSE_CATEGORIES),
         income_categories=_cl(catalog.TXN_CATEGORY_LABELS, catalog.INCOME_CATEGORIES),
         districts=catalog.DISTRICTS,
-        roles=_cl(catalog.ROLE_LABELS, catalog.ROLES),
+        roles=_cl(catalog.ROLE_LABELS, catalog.ROLES_ALL),
         offer_kinds=_cl(catalog.OFFER_KIND_LABELS, catalog.OFFER_KINDS),
         category_hints=catalog.CATEGORY_HINTS,
         fx_usd_uzs=fx.rate(),
@@ -54,6 +56,18 @@ def meta_get(db: DbDep) -> MetaResponse:
             CurrencyFormat(code="USD", symbol="$", decimals=0, thousands_separator=",", symbol_position="before"),
         ],
         demo_companies=demo,
+        user_roles=_cl(catalog.USER_ROLE_LABELS, list(catalog.USER_ROLE_LABELS)),
+        credit_products=[CreditProductMeta(code=k, label=LabelSet(**catalog.CREDIT_PRODUCT_LABELS[k]),
+                                           rate_pct=v["rate_pct"], max_months=int(v["max_months"]),
+                                           down_payment_pct=v["down_payment_pct"])
+                         for k, v in CREDIT_PRODUCTS.items()],
+        decision_types=_cl(catalog.DECISION_TYPE_LABELS, list(catalog.DECISION_TYPE_LABELS)),
+        block_types=catalog.BLOCK_TYPES,
+        integration_kinds=_cl(catalog.INTEGRATION_LABELS, catalog.INTEGRATION_KINDS),
+        plans=_cl(catalog.PLAN_LABELS, catalog.PLANS),
+        stores=[StoreRef(id=s.id, name=s.name, district=s.district)
+                for s in db.scalars(select(Store).where(Store.company_id == company.id).order_by(Store.id))]
+        if company else [],
     )
 
 

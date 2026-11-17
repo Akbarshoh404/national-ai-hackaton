@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.catalog import normalize_district
 from app.schemas.common import ORM, Category, Role, UTCDateTime
@@ -14,7 +14,7 @@ class CompanyRegister(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     stir: str = Field(description="9-digit taxpayer number (STIR/INN)")
     role: Role
-    categories: list[Category] = Field(min_length=1)
+    categories: list[Category] = Field(default_factory=list, description="Required unless lender/market_admin")
     city: str = "Toshkent"
     district: str | None = None
     tax_regime: Literal["turnover", "vat"] = "turnover"
@@ -31,6 +31,12 @@ class CompanyRegister(BaseModel):
     @classmethod
     def _district(cls, v: str | None) -> str | None:
         return normalize_district(v) or v if v else None
+
+    @model_validator(mode="after")
+    def _cats(self) -> CompanyRegister:
+        if not self.categories and self.role not in ("lender", "market_admin"):
+            raise ValueError("categories: at least one category is required")
+        return self
 
 
 class CompanyUpdate(BaseModel):
@@ -57,6 +63,8 @@ class CompanyOut(ORM):
     city: str
     district: str | None
     tax_regime: str
+    plan: str = "pro"
+    my_role: str = "owner"
     telegram_linked: bool = False
     created_at: UTCDateTime
 
@@ -113,6 +121,21 @@ class CurrencyFormat(BaseModel):
     symbol_position: Literal["before", "after"]
 
 
+class CreditProductMeta(BaseModel):
+    code: str
+    label: LabelSet
+    rate_pct: float
+    max_months: int
+    down_payment_pct: float
+    rates_verified: bool = False
+
+
+class StoreRef(BaseModel):
+    id: int
+    name: str
+    district: str | None
+
+
 class MetaResponse(BaseModel):
     categories: list[CodeLabel]
     conditions: dict[str, list[CodeLabel]]
@@ -127,6 +150,13 @@ class MetaResponse(BaseModel):
     fx_updated_at: UTCDateTime | None
     currencies: list[CurrencyFormat]
     demo_companies: list[DemoCompany]
+    user_roles: list[CodeLabel] = []
+    credit_products: list[CreditProductMeta] = []
+    decision_types: list[CodeLabel] = []
+    block_types: list[str] = []
+    integration_kinds: list[CodeLabel] = []
+    plans: list[CodeLabel] = []
+    stores: list[StoreRef] = Field(default_factory=list, description="Only when called with X-API-Key")
 
 
 class ComponentStatus(BaseModel):

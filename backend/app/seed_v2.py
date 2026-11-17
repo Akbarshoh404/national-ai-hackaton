@@ -1,0 +1,186 @@
+"""v2 demo data: stores, users, partner accounts, integrations, the 80-unit stock center.
+
+!!! SYNTHETIC DEMO DATA. TACs in data/tac.csv are made up (demo only). !!!
+Called at the end of `seed.run`.
+"""
+
+from __future__ import annotations
+
+import csv
+import random
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from app.catalog import INTEGRATION_KINDS
+from app.deps import hash_key
+from app.models import Company, InventoryItem, Store, User
+from app.services import pricing
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+PARTNERS = {
+    # slug: (name, stir, role, categories, district)
+    "demo-bank": ("Demo Lizing Bank", "307890123", "lender", [], "Mirobod"),
+    "bozor-admin": ("Malika Bozori Ma'muriyati", "308901234", "market_admin", [], "Olmazor"),
+}
+DEMO_USERS = [("chilonzor-phone", "chilonzor-manager", "Dilshod (menejer)", "manager"),
+              ("chilonzor-phone", "chilonzor-appraiser", "Aziza (baholovchi)", "appraiser")]
+
+# (brand, model, condition, attrs, count) per stock group
+FAIR_UNITS = [
+    ("Apple", "iPhone 13", "A", {"storage_gb": 128}, 8), ("Apple", "iPhone 14", "A", {"storage_gb": 128}, 6),
+    ("Apple", "iPhone 15", "new", {"storage_gb": 128}, 5), ("Apple", "iPhone 12", "B", {"storage_gb": 128}, 5),
+    ("Apple", "iPhone 11", "B", {"storage_gb": 64}, 4), ("Samsung", "Galaxy A54", "new", {"storage_gb": 128}, 5),
+    ("Samsung", "Galaxy S23", "A", {"storage_gb": 256}, 3),
+    ("Xiaomi", "Redmi Note 13", "new", {"storage_gb": 256, "ram_gb": 8}, 4),
+    ("Xiaomi", "Poco X6 Pro", "new", {"storage_gb": 256}, 3),
+    ("Apple", "MacBook Air M1", "A", {"ram_gb": 8, "ssd_gb": 256}, 3),
+    ("Apple", "MacBook Air M2", "new", {"ram_gb": 8, "ssd_gb": 256}, 2),
+    ("ASUS", "TUF F15", "new", {"ram_gb": 16, "ssd_gb": 512}, 2),
+]
+OVERPRICED_UNITS = [
+    ("Apple", "iPhone 13", "A", {"storage_gb": 128}, 3), ("Apple", "iPhone 14", "A", {"storage_gb": 128}, 3),
+    ("Apple", "iPhone 15", "new", {"storage_gb": 128}, 2), ("Samsung", "Galaxy S23", "A", {"storage_gb": 256}, 2),
+    ("Xiaomi", "Redmi Note 13", "new", {"storage_gb": 256, "ram_gb": 8}, 2),
+    ("Apple", "MacBook Air M1", "A", {"ram_gb": 8, "ssd_gb": 256}, 2),
+]
+UNDERPRICED_UNITS = [("Apple", "iPhone 12", "B", {"storage_gb": 128}, 1),
+                     ("Samsung", "Galaxy A54", "new", {"storage_gb": 128}, 1)]
+AGING_UNITS = [  # 31–55 days old
+    ("Apple", "iPhone 11", "B", {"storage_gb": 64}, 2), ("Samsung", "Galaxy A54", "new", {"storage_gb": 128}, 2),
+    ("Lenovo", "IdeaPad 3", "new", {"ram_gb": 8, "ssd_gb": 256}, 1),
+    ("Dell", "Latitude 5420", "A", {"ram_gb": 8, "ssd_gb": 256}, 1),
+]
+SLOW_UNITS = [  # > SLOW_STOCK_DAYS (the 8 units of v1), with their age in days
+    ("Samsung", "Galaxy A54", "new", {"storage_gb": 128}, 3, 80),
+    ("Xiaomi", "Redmi Note 12", "new", {"storage_gb": 128}, 2, 90),
+    ("HP", "Pavilion 15", "new", {"ram_gb": 8, "ssd_gb": 512}, 2, 85),
+    ("Lenovo", "IdeaPad 3", "new", {"ram_gb": 8, "ssd_gb": 256}, 1, 100),
+]
+LAPTOPS = {"MacBook Air M1", "MacBook Air M2", "TUF F15", "IdeaPad 3", "Latitude 5420", "Pavilion 15"}
+
+
+def load_tac() -> dict[str, dict[str, Any]]:
+    """TAC (first 8 IMEI digits) → {brand, model, storage_options}. Demo table, not licensed data."""
+    out = {}
+    with open(DATA_DIR / "tac.csv", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            out[row["tac"]] = {"brand": row["brand"], "model": row["model"],
+                               "storage_options": [int(x) for x in row["storage_options"].split("|")]}
+    return out
+
+
+def luhn_digit(body: str) -> str:
+    """Luhn check digit for a 14-digit IMEI body."""
+    total = 0
+    for i, ch in enumerate(reversed(body)):
+        d = int(ch)
+        if i % 2 == 0:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return str((10 - total % 10) % 10)
+
+
+def make_imei(tac: str, serial: int) -> str:
+    body = f"{tac}{serial:06d}"
+    return body + luhn_digit(body)
+
+
+def run(db: Session, companies: dict[str, Company], today: date) -> dict[str, int]:
+    from app.routers.auth import demo_key
+    from app.seed import _company
+
+    rng = random.Random(23)
+    ch = companies["chilonzor-phone"]
+    for slug, spec in PARTNERS.items():
+        companies[slug] = _company(db, slug, *spec)
+    db.flush()
+
+    # stores: Chilonzor has two
+    main = db.scalar(select(Store).where(Store.company_id == ch.id))
+    main.name = "Chilonzor (asosiy)"
+    second = Store(company_id=ch.id, name="Yunusobod filiali", district="Yunusobod", area_m2=45)
+    db.add(second)
+    db.flush()
+    stores = [main.id, second.id]
+
+    for slug, key, name, role in DEMO_USERS:
+        db.add(User(company_id=companies[slug].id, name=name, role=role, api_key=hash_key(demo_key(key))))
+
+    # integrations: rows for every company; Chilonzor's Didox is connected (mock)
+    from app.services.integrations import ensure_rows
+
+    for c in db.scalars(select(Company)):
+        ensure_rows(db, c)
+    db.flush()
+    from app.models import Integration
+
+    didox = db.scalar(select(Integration).where(Integration.company_id == ch.id, Integration.kind == "didox"))
+    didox.status = "connected"
+    didox.details = {"mode": "mock", "account": "Chilonzor Phone Market (demo)"}
+
+    units = seed_stock(db, ch, stores, today, rng)
+    return {"stock_units": units, "integrations": len(INTEGRATION_KINDS)}
+
+
+def seed_stock(db: Session, ch: Company, stores: list[int], today: date, rng: random.Random) -> int:
+    """Replace Chilonzor's v1 inventory with 80 single units (14 overpriced, 6 aging, 8 slow)."""
+    db.execute(delete(InventoryItem).where(InventoryItem.company_id == ch.id))
+    tacs = {(v["brand"], v["model"]): k for k, v in load_tac().items()}
+    serial = iter(range(100001, 999999))
+    pricing.invalidate()
+    n = 0
+
+    def unit(brand: str, model: str, cond: str, attrs: dict[str, Any], age: int, list_mode: str,
+             cost_factor: float | None = None, status: str = "in_stock", sold_after: int | None = None) -> None:
+        nonlocal n
+        cat = "laptop" if model in LAPTOPS else "phone"
+        est = pricing.estimate(db, cat, model, cond, attrs=attrs, brand=brand)
+        p25, p75 = est.range_uzs
+        list_price = {
+            "fair": est.fair_price_uzs * rng.uniform(0.995, 1.005),
+            "over": p75 * rng.uniform(1.08, 1.15),
+            "under": p25 * 0.93,
+        }[list_mode]
+        cost = est.fair_buy_price_uzs * (cost_factor or rng.uniform(0.97, 1.02))
+        tac = tacs.get((brand, model))
+        acquired = today - timedelta(days=age)
+        db.add(InventoryItem(
+            company_id=ch.id, category=cat, brand=brand, model=model, condition=cond, attrs=attrs,
+            district="Chilonzor", qty=1, unit_cost=round(cost, -3), acquired_at=acquired, status=status,
+            list_price_uzs=round(list_price, -3), store_id=stores[n % 2],
+            identifier=make_imei(tac, next(serial)) if tac else None,
+            sold_at=acquired + timedelta(days=sold_after) if sold_after is not None else None))
+        if status == "in_stock":
+            n += 1
+
+    overpaid = 3  # the 3 iPhone 13 bought 20% above fair purchase price (v1 audit plant)
+    for brand, model, cond, attrs, count in FAIR_UNITS:
+        for _ in range(count):
+            factor = None
+            if model == "iPhone 13" and overpaid:
+                factor, overpaid = 1.20, overpaid - 1
+            unit(brand, model, cond, attrs, rng.randint(2, 28), "fair", factor)
+    for brand, model, cond, attrs, count in OVERPRICED_UNITS:
+        for _ in range(count):
+            unit(brand, model, cond, attrs, rng.randint(3, 25), "over")
+    for brand, model, cond, attrs, count in UNDERPRICED_UNITS:
+        for _ in range(count):
+            unit(brand, model, cond, attrs, rng.randint(2, 15), "under")
+    for brand, model, cond, attrs, count in AGING_UNITS:
+        for _ in range(count):
+            unit(brand, model, cond, attrs, rng.randint(31, 55), "fair")
+    for brand, model, cond, attrs, count, age in SLOW_UNITS:
+        for _ in range(count):
+            unit(brand, model, cond, attrs, age, "fair")
+    # sold history (iPhones): enough for company-specific expected_days_to_sell
+    for i in range(12):
+        brand, model, cond, attrs, _ = FAIR_UNITS[i % 4]
+        unit(brand, model, cond, attrs, rng.randint(40, 120), "fair", status="sold", sold_after=8 + (i * 7) % 18)
+    return n

@@ -109,3 +109,22 @@ STOCK_TURNS_PER_MONTH: dict[str, float] = {"phone": 1.5, "laptop": 1.0, "car": 0
 RENT_OPEX_RATIO = 0.15
 #: Price a slow-moving unit at this share of the market price to clear it.
 SURPLUS_PRICE_FACTOR = 0.92
+
+# ---------------------------------------------------------------------------
+# v2: stock command center, lender console, credit products
+# ---------------------------------------------------------------------------
+#: Days to sell when a company has < 5 own sales in the category.
+DEFAULT_DAYS_TO_SELL: dict[str, float] = {"phone": 21, "laptop": 30, "car": 45, "house": 120, "rent": 30}
+#: Handling cost deducted from resale margin on sourcing-radar rows.
+RESALE_HANDLING_PCT = 0.03
+#: Lender liquidation haircut applied to p25: liquidation = p25 × (1 − haircut).
+LIQUIDATION_HAIRCUT: dict[str, float] = {"car": 0.10, "house": 0.10, "phone": 0.20, "laptop": 0.25}
+#: Collateral is on `watch` within this many LTV points of the limit.
+LTV_WATCH_MARGIN = 0.05
+#: Credit products. ALL RATES ARE PLACEHOLDERS — VERIFY with partner banks.
+CREDIT_PRODUCTS: dict[str, dict[str, float]] = {
+    "business_loan": {"rate_pct": 24.0, "max_months": 36, "down_payment_pct": 0.0},
+    "auto_loan": {"rate_pct": 26.0, "max_months": 60, "down_payment_pct": 0.20},
+    "mortgage": {"rate_pct": 18.0, "max_months": 240, "down_payment_pct": 0.30},
+    "leasing": {"rate_pct": 28.0, "max_months": 36, "down_payment_pct": 0.20},
+}

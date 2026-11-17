@@ -30,7 +30,7 @@ from app.schemas.exchange import (
     RfqIn,
     RfqOut,
 )
-from app.services import exchange
+from app.services import activity, exchange
 
 router = APIRouter(prefix="/exchange", tags=["B2B exchange (#19)"])
 
@@ -57,6 +57,7 @@ def exchange_create_rfq(body: RfqIn, db: DbDep, company: CompanyDep, lang: LangD
     if body.category in ("phone", "laptop", "car") and not body.model:
         raise AppError("model_required", "model is required for this category", 422)
     rfq, est, notified = exchange.create_rfq(db, company, body.model_dump(), lang)
+    activity.log(db, company, "rfq.create", "rfq", rfq.id, f"RFQ {rfq.model} × {rfq.qty}")
     return RfqCreated(rfq=rfq_out(db, rfq, company), market=estimate_out(est, lang=lang) if est else None,
                       notified_companies=notified)
 
@@ -90,7 +91,10 @@ def exchange_get_rfq(rfq_id: int, db: DbDep, company: CompanyDep) -> RfqOut:
 @router.post("/rfqs/{rfq_id}/quotes", response_model=QuoteOut, status_code=201)
 def exchange_submit_quote(rfq_id: int, body: QuoteIn, db: DbDep, company: CompanyDep) -> QuoteOut:
     """Supplier quotes on a request; the buyer gets an alert."""
-    return QuoteOut.model_validate(exchange.submit_quote(db, company, rfq_id, body.model_dump()))
+    q = exchange.submit_quote(db, company, rfq_id, body.model_dump())
+    activity.log(db, company, "quote.submit", "quote", q.id,
+                 f"Quote on RFQ #{rfq_id}: {round(q.unit_price):,} × {q.qty}")
+    return QuoteOut.model_validate(q)
 
 
 @router.get("/rfqs/{rfq_id}/quotes", response_model=RankedQuotes)
@@ -102,7 +106,9 @@ def exchange_ranked_quotes(rfq_id: int, db: DbDep, company: CompanyDep, lang: La
 @router.post("/quotes/{quote_id}/accept", response_model=DealOut)
 def exchange_accept_quote(quote_id: int, db: DbDep, company: CompanyDep) -> DealOut:
     """Accept a quote → deal booked in both companies' books, inventory moved."""
-    return deal_out(db, exchange.accept_quote(db, company, quote_id), company)
+    deal = exchange.accept_quote(db, company, quote_id)
+    activity.log(db, company, "quote.accept", "deal", deal.id, f"Deal #{deal.id}: {deal.model} × {deal.qty}")
+    return deal_out(db, deal, company)
 
 
 @router.get("/rfqs/{rfq_id}/matches", response_model=list[OfferMatch])
@@ -124,7 +130,8 @@ def exchange_create_offer(body: OfferIn, db: DbDep, company: CompanyDep, lang: L
     data["district"] = normalize_district(data["district"]) or data["district"] or company.district
     o = Offer(company_id=company.id, **data)
     db.add(o)
-    db.commit()
+    db.flush()
+    activity.log(db, company, "offer.create", "offer", o.id, f"{o.kind} offer {o.model} × {o.qty}")
     return OfferOut(**exchange.offer_view(db, o, lang))
 
 
@@ -157,14 +164,16 @@ def exchange_withdraw_offer(offer_id: int, db: DbDep, company: CompanyDep) -> Ok
     if o.company_id != company.id:
         raise forbidden("Not your offer")
     o.status = "withdrawn"
-    db.commit()
+    activity.log(db, company, "offer.withdraw", "offer", o.id, f"Offer {o.model} withdrawn")
     return OkResponse()
 
 
 @router.post("/offers/{offer_id}/buy", response_model=DealOut)
 def exchange_buy_offer(offer_id: int, body: BuyIn, db: DbDep, company: CompanyDep) -> DealOut:
     """Buy from an offer → deal booked like an accepted quote."""
-    return deal_out(db, exchange.buy_offer(db, company, offer_id, body.qty), company)
+    deal = exchange.buy_offer(db, company, offer_id, body.qty)
+    activity.log(db, company, "offer.buy", "deal", deal.id, f"Bought {deal.model} × {deal.qty}")
+    return deal_out(db, deal, company)
 
 
 @router.get("/deals", response_model=Page[DealOut])
@@ -181,7 +190,9 @@ def exchange_list_deals(db: DbDep, company: CompanyDep, cursor: str | None = Non
 
 @router.post("/deals/{deal_id}/rate", response_model=RatingOut, status_code=201)
 def exchange_rate_deal(deal_id: int, body: RatingIn, db: DbDep, company: CompanyDep) -> RatingOut:
-    return RatingOut.model_validate(exchange.rate_deal(db, company, deal_id, body.score, body.comment))
+    r = exchange.rate_deal(db, company, deal_id, body.score, body.comment)
+    activity.log(db, company, "deal.rate", "deal", deal_id, f"Rated deal #{deal_id}: {body.score}/5")
+    return RatingOut.model_validate(r)
 
 
 @router.get("/demand", response_model=DemandOut)

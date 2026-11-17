@@ -38,6 +38,7 @@ class Company(Base):
     city: Mapped[str] = mapped_column(String(80), default="Toshkent")
     district: Mapped[str | None] = mapped_column(String(80))
     tax_regime: Mapped[str] = mapped_column(String(10), default="turnover")
+    plan: Mapped[str] = mapped_column(String(10), default="pro", server_default="pro")
     api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # sha256 hex
     telegram_chat_id: Mapped[int | None] = mapped_column(Integer, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -119,11 +120,13 @@ class Transaction(Base):
     note: Mapped[str | None] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(15), default="manual")
     deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id"))
+    store_id: Mapped[int | None] = mapped_column(ForeignKey("stores.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class InventoryItem(Base):
     __tablename__ = "inventory"
+    __table_args__ = (UniqueConstraint("company_id", "identifier", name="uq_inventory_identifier"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
     category: Mapped[str] = mapped_column(String(10))
@@ -136,6 +139,10 @@ class InventoryItem(Base):
     unit_cost: Mapped[float] = mapped_column(Float)
     acquired_at: Mapped[date] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(10), default="in_stock")
+    list_price_uzs: Mapped[float | None] = mapped_column(Float)
+    identifier: Mapped[str | None] = mapped_column(String(40))  # IMEI or VIN
+    store_id: Mapped[int | None] = mapped_column(ForeignKey("stores.id"), index=True)
+    sold_at: Mapped[date | None] = mapped_column(Date)
 
 
 class Budget(Base):
@@ -146,6 +153,7 @@ class Budget(Base):
     month: Mapped[str] = mapped_column(String(7))
     category: Mapped[str] = mapped_column(String(30))
     planned: Mapped[float] = mapped_column(Float)
+    store_id: Mapped[int | None] = mapped_column(ForeignKey("stores.id"))
 
 
 class Rfq(Base):
@@ -177,6 +185,8 @@ class Quote(Base):
     delivery_days: Mapped[int] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(10), default="pending")
+    counter_unit_price: Mapped[float | None] = mapped_column(Float)
+    counter_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -254,3 +264,96 @@ class AlertRead(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"))
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
+
+
+class Store(Base):
+    __tablename__ = "stores"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    district: Mapped[str | None] = mapped_column(String(80))
+    area_m2: Mapped[float | None] = mapped_column(Float)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    role: Mapped[str] = mapped_column(String(20))
+    api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(40))
+    entity: Mapped[str] = mapped_column(String(30), index=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    summary: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class Decision(Base):
+    __tablename__ = "decisions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    type: Mapped[str] = mapped_column(String(30))
+    key: Mapped[str] = mapped_column(String(120))
+    title: Mapped[str] = mapped_column(String(300))
+    message: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    amount_uzs: Mapped[float] = mapped_column(Float, default=0)
+    status: Mapped[str] = mapped_column(String(10), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
+class LoanApplication(Base):
+    __tablename__ = "loan_applications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    lender_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    product: Mapped[str] = mapped_column(String(20))
+    principal_uzs: Mapped[float] = mapped_column(Float)
+    months: Mapped[int] = mapped_column(Integer)
+    purpose: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(10), default="submitted")
+    decision_note: Mapped[str | None] = mapped_column(Text)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    consent_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Collateral(Base):
+    __tablename__ = "collateral"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lender_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    loan_application_id: Mapped[int | None] = mapped_column(ForeignKey("loan_applications.id"))
+    borrower_name: Mapped[str] = mapped_column(String(200))
+    category: Mapped[str] = mapped_column(String(10))
+    brand: Mapped[str | None] = mapped_column(String(60))
+    model: Mapped[str | None] = mapped_column(String(120))
+    condition: Mapped[str | None] = mapped_column(String(10))
+    district: Mapped[str | None] = mapped_column(String(80))
+    attrs: Mapped[dict[str, Any]] = _attrs()
+    qty: Mapped[int] = mapped_column(Integer, default=1)
+    loan_balance_uzs: Mapped[float] = mapped_column(Float)
+    ltv_limit: Mapped[float] = mapped_column(Float, default=0.7)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Integration(Base):
+    __tablename__ = "integrations"
+    __table_args__ = (UniqueConstraint("company_id", "kind", name="uq_integration"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(15), default="not_connected")
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

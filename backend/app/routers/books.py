@@ -27,7 +27,7 @@ from app.schemas.books import (
     UploadResult,
 )
 from app.schemas.common import OkResponse, Page
-from app.services import books
+from app.services import activity, books
 
 router = APIRouter(prefix="/books", tags=["books (#25, #26)"])
 
@@ -45,6 +45,8 @@ async def books_upload(db: DbDep, company: CompanyDep, file: UploadFile = File(.
     content = await _read_limited(file)
     rows, errors = books.parse_upload(content, file.filename or "upload.csv")
     books.create_transactions(db, company, rows, origin="upload")
+    activity.log(db, company, "books.upload", "transaction", None,
+                 f"Imported {len(rows)} rows from {file.filename} ({len(errors)} errors)")
     return UploadResult(created=len(rows), errors=errors)
 
 
@@ -66,6 +68,7 @@ async def books_invoice(db: DbDep, company: CompanyDep, file: UploadFile = File(
     ids: list[int] = []
     if commit and rows:
         ids = [tx.id for tx in books.create_transactions(db, company, rows, origin="invoice_ocr")]
+        activity.log(db, company, "books.invoice", "transaction", None, f"Invoice OCR added {len(ids)} rows")
     return InvoiceResult(committed=bool(commit and rows), extracted=[TransactionIn(**r) for r in rows],
                          created_ids=ids)
 
@@ -74,8 +77,11 @@ async def books_invoice(db: DbDep, company: CompanyDep, file: UploadFile = File(
 def books_list_transactions(db: DbDep, company: CompanyDep,
                             month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
                             category: str | None = None, type: TxType | None = None, cursor: str | None = None,
-                            limit: int = Query(50, ge=1, le=500)) -> Page[TransactionOut]:
+                            limit: int = Query(50, ge=1, le=500),
+                            store_id: int | None = None) -> Page[TransactionOut]:
     q = select(Transaction).where(Transaction.company_id == company.id)
+    if store_id is not None:
+        q = q.where(Transaction.store_id == store_id)
     if month:
         y, m = (int(x) for x in month.split("-"))
         start = date(y, m, 1)
@@ -101,6 +107,8 @@ def books_create_transaction(body: TransactionIn, db: DbDep, company: CompanyDep
     if body.model and not data["attrs"]:
         data["attrs"] = books._attrs_from_model(body.model)
     tx = books.create_transactions(db, company, [data], origin="manual")[0]
+    activity.log(db, company, "transaction.create", "transaction", tx.id,
+                 f"{tx.type} {tx.category} {round(tx.total):,} so'm")
     return TransactionOut.model_validate(tx)
 
 
@@ -113,7 +121,8 @@ def books_delete_transaction(tx_id: int, db: DbDep, company: CompanyDep) -> OkRe
     if tx.origin == "exchange" or tx.deal_id:
         raise AppError("exchange_entry_locked", "Entries created by exchange deals cannot be deleted", 409)
     db.delete(tx)
-    db.commit()
+    activity.log(db, company, "transaction.delete", "transaction", tx_id,
+                 f"Deleted {tx.category} {round(tx.total):,} so'm")
     books._audit_cache.pop(company.id, None)
     return OkResponse()
 
@@ -136,6 +145,8 @@ def books_benchmark(db: DbDep, company: CompanyDep) -> BenchmarkOut:
 @router.put("/budget", response_model=BudgetOut)
 def books_set_budget(body: BudgetIn, db: DbDep, company: CompanyDep, lang: LangDep) -> BudgetOut:
     books.set_budget(db, company, body.month, body.items)
+    activity.log(db, company, "budget.update", "budget", None,
+                 f"Budget {body.month}: " + ", ".join(f"{k}={round(v):,}" for k, v in body.items.items()))
     return BudgetOut(**books.budget_status(db, company, body.month, lang))
 
 
@@ -147,8 +158,11 @@ def books_budget(db: DbDep, company: CompanyDep, lang: LangDep,
 
 
 @router.get("/inventory", response_model=Page[InventoryOut])
-def books_inventory(db: DbDep, company: CompanyDep, status: str | None = "in_stock") -> Page[InventoryOut]:
+def books_inventory(db: DbDep, company: CompanyDep, status: str | None = "in_stock",
+                    store_id: int | None = None) -> Page[InventoryOut]:
     q = select(InventoryItem).where(InventoryItem.company_id == company.id)
+    if store_id is not None:
+        q = q.where(InventoryItem.store_id == store_id)
     if status:
         q = q.where(InventoryItem.status == status)
     rows = list(db.scalars(q.order_by(InventoryItem.id.desc())))
@@ -160,9 +174,13 @@ def books_add_inventory(body: InventoryIn, db: DbDep, company: CompanyDep) -> In
     data = body.model_dump()
     data["acquired_at"] = data["acquired_at"] or date.today()
     data["district"] = data["district"] or company.district
+    if data["identifier"] and db.scalar(select(InventoryItem.id).where(
+            InventoryItem.company_id == company.id, InventoryItem.identifier == data["identifier"])):
+        raise AppError("identifier_exists", "A unit with this IMEI/VIN already exists", 409)
     it = InventoryItem(company_id=company.id, **data)
     db.add(it)
-    db.commit()
+    db.flush()
+    activity.log(db, company, "inventory.create", "inventory", it.id, f"{it.model} × {it.qty} added")
     return InventoryOut.model_validate(it)
 
 

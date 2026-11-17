@@ -21,7 +21,19 @@ from app.catalog import DISTRICTS, norm_model
 from app.config import CONDITION_MULTIPLIERS, settings
 from app.db import utcnow
 from app.deps import hash_key
-from app.models import Budget, Company, Deal, InventoryItem, Listing, Offer, Quote, Rating, Rfq, Transaction
+from app.models import (
+    Budget,
+    Company,
+    Deal,
+    InventoryItem,
+    Listing,
+    Offer,
+    Quote,
+    Rating,
+    Rfq,
+    Store,
+    Transaction,
+)
 from app.services import market, pricing
 
 log = logging.getLogger("bozorpilot.seed")
@@ -268,6 +280,7 @@ def _company(db: Session, slug: str | None, name: str, stir: str, role: str, cat
                 api_key=hash_key(key), tax_regime="turnover")
     db.add(c)
     db.flush()
+    db.add(Store(company_id=c.id, name="Asosiy do'kon", district=district))
     return c
 
 
@@ -568,6 +581,10 @@ def run(reset: bool = True) -> dict[str, int]:
         db.commit()
         companies = seed_companies(db, today)
         db.commit()
+        from app import seed_v2
+
+        v2 = seed_v2.run(db, companies, today)
+        db.commit()
         try:
             from app.services.telegram_ingest import sync_sources_from_yaml
 
@@ -576,4 +593,4 @@ def run(reset: bool = True) -> dict[str, int]:
             log.warning("sources.yaml sync skipped")
         db.commit()
     pricing.invalidate()
-    return {"listings": len(listings), "companies": len(companies), "deal_alerts": deals}
+    return {"listings": len(listings), "companies": len(companies), "deal_alerts": deals, **v2}

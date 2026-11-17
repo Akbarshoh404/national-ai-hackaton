@@ -240,6 +240,7 @@ def _move_inventory(db: Session, seller_id: int, buyer_id: int, item: Any, qty: 
         left -= take
         if row.qty == 0:
             row.status = "sold"
+            row.sold_at = date.today()
     db.add(InventoryItem(company_id=buyer_id, category=item.category, brand=item.brand, model=item.model,
                          condition=item.condition, attrs=item.attrs or {}, district=district, qty=qty,
                          unit_cost=unit_price, acquired_at=date.today()))

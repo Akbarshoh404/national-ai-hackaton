@@ -27,6 +27,7 @@ class TransactionIn(BaseModel):
     total: float = Field(gt=0)
     counterparty: str | None = None
     note: str | None = None
+    store_id: int | None = None
 
     @field_validator("category")
     @classmethod
@@ -53,6 +54,7 @@ class TransactionOut(ORM):
     note: str | None
     origin: str
     deal_id: int | None
+    store_id: int | None = None
     created_at: UTCDateTime
 
 
@@ -162,6 +164,9 @@ class InventoryIn(BaseModel):
     qty: int = Field(1, ge=1)
     unit_cost: float = Field(gt=0)
     acquired_at: date | None = None
+    list_price_uzs: float | None = Field(None, gt=0)
+    identifier: str | None = Field(None, description="IMEI or VIN (unique per company)")
+    store_id: int | None = None
 
 
 class InventoryOut(ORM):
@@ -176,6 +181,9 @@ class InventoryOut(ORM):
     unit_cost: float
     acquired_at: date
     status: str
+    list_price_uzs: float | None = None
+    identifier: str | None = None
+    store_id: int | None = None
 
 
 class SlowStockItem(BaseModel):

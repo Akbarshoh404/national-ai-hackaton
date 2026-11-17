@@ -20,7 +20,8 @@ def _iso_utc(d: datetime) -> str:
 UTCDateTime = Annotated[datetime, PlainSerializer(_iso_utc, return_type=str, when_used="json")]
 
 Category = Literal["phone", "laptop", "car", "house", "rent"]
-Role = Literal["retailer", "supplier", "realtor", "landlord"]
+Role = Literal["retailer", "supplier", "realtor", "landlord", "lender", "market_admin"]
+UserRole = Literal["owner", "manager", "appraiser", "lender_officer"]
 Severity = Literal["info", "low", "medium", "high"]
 
 

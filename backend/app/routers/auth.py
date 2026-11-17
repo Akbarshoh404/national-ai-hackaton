@@ -7,9 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
-from app.deps import CompanyDep, DbDep, hash_key, new_api_key
+from app.deps import CompanyDep, DbDep, actor_role, hash_key, new_api_key
 from app.errors import AppError, conflict, not_found
-from app.models import Company
+from app.models import Company, Store
 from app.schemas.auth import (
     CompanyOut,
     CompanyPublic,
@@ -35,6 +35,7 @@ def demo_key(slug: str) -> str:
 def company_out(c: Company) -> CompanyOut:
     out = CompanyOut.model_validate(c)
     out.telegram_linked = c.telegram_chat_id is not None
+    out.my_role = actor_role(c)
     return out
 
 
@@ -48,6 +49,8 @@ def auth_register(body: CompanyRegister, db: DbDep) -> RegisterResponse:
                       city=body.city, district=body.district, tax_regime=body.tax_regime, api_key=hash_key(key))
     db.add(company)
     try:
+        db.flush()
+        db.add(Store(company_id=company.id, name="Asosiy do'kon", district=company.district))
         db.commit()
     except IntegrityError as exc:
         db.rollback()

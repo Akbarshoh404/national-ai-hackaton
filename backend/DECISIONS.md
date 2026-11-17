@@ -95,3 +95,25 @@ Choices made while building, where the spec left room. Grouped by area.
   on the last day of a month, `stock_purchase` is `at_risk` via the ≥ 90% rule rather than the forecast.
 - The seeded RFQ has two quotes. The better-rated supplier (Samarqand, 4.67★, 3 days, full qty, 0.99 ×
   fair buy) beats a pricier, partial, slower one (Malika, 3.75★).
+
+---
+
+# v2 decisions (B2B command center, lender console, rich answers)
+
+## Platform, roles, stores
+- **One migration (`0002`) for the whole v2 schema.** Foreign keys are named explicitly so SQLite batch
+  downgrades work. `inventory.sold_at` was added as well: it links a unit to its sale date (FIFO), which
+  `expected_days_to_sell` needs.
+- **Permissions are enforced centrally** in the auth dependency (`app/permissions.py`), based on method + path.
+  Partner companies (`lender`, `market_admin`) can only use the partner surface (`/lender`, `/partner`, `/market`,
+  `/companies`, `/alerts`, `/users`, `/activity`, `/integrations`, `/input`, `/stores`). Appraisers have an
+  allow-list (market, pricing, inventory reads, input parsing). Managers have a deny-list (company settings,
+  users, loan applications). Router-level checks stay for `/lender/*` (company must be a lender) and owner-only
+  actions. Denials return 403 `role_forbidden`.
+- A company key acts as `owner`. User keys are hashed the same way. The caller's role is attached to the
+  request-scoped `Company` instance (`actor_role`, `actor_user_id`), which the activity log reads.
+- `budgets.store_id` exists, but the unique key stays (company, month, category). Budgets are company-wide
+  for now.
+- Partner companies may register without categories; all other roles still need at least one.
+- The demo lender is **"Demo Lizing Bank"** (slug `demo-bank`): "Hamkor" is a real Uzbek bank brand.
+- Every company gets a default store ("Asosiy do'kon") on register and in the seed.

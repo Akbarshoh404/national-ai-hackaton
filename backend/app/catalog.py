@@ -238,3 +238,52 @@ def label(table: dict[str, dict[str, str]], key: str, lang: Lang) -> str:
     if not entry:
         return key
     return entry.get(lang) or entry.get("en") or key
+
+
+# ---------------------------------------------------------------------------
+# v2 reference lists
+# ---------------------------------------------------------------------------
+USER_ROLE_LABELS: dict[str, dict[str, str]] = {
+    "owner": {"uz": "Egasi", "ru": "Владелец", "en": "Owner"},
+    "manager": {"uz": "Menejer", "ru": "Менеджер", "en": "Manager"},
+    "appraiser": {"uz": "Baholovchi", "ru": "Оценщик", "en": "Appraiser"},
+    "lender_officer": {"uz": "Kredit xodimi", "ru": "Кредитный специалист", "en": "Lender officer"},
+}
+ROLE_LABELS.update({
+    "lender": {"uz": "Bank / lizing", "ru": "Банк / лизинг", "en": "Lender"},
+    "market_admin": {"uz": "Bozor ma'muriyati", "ru": "Администрация рынка", "en": "Market admin"},
+})
+ROLES_ALL = [*ROLES, "lender", "market_admin"]
+PLANS = ["start", "pro", "business"]
+PLAN_LABELS: dict[str, dict[str, str]] = {
+    "start": {"uz": "Start", "ru": "Старт", "en": "Start"},
+    "pro": {"uz": "Pro", "ru": "Pro", "en": "Pro"},
+    "business": {"uz": "Biznes", "ru": "Бизнес", "en": "Business"},
+}
+CREDIT_PRODUCT_LABELS: dict[str, dict[str, str]] = {
+    "business_loan": {"uz": "Biznes kredit", "ru": "Бизнес-кредит", "en": "Business loan"},
+    "auto_loan": {"uz": "Avto zaxirasini moliyalash", "ru": "Финансирование автостока", "en": "Dealer stock loan"},
+    "mortgage": {"uz": "Ipoteka", "ru": "Ипотека", "en": "Mortgage"},
+    "leasing": {"uz": "Lizing", "ru": "Лизинг", "en": "Leasing"},
+}
+DECISION_TYPE_LABELS: dict[str, dict[str, str]] = {
+    "reprice": {"uz": "Narxni o'zgartirish", "ru": "Переоценка", "en": "Reprice"},
+    "duplicate_invoice": {"uz": "Takroriy hisob", "ru": "Дубликат счёта", "en": "Duplicate invoice"},
+    "typo_amount": {"uz": "Summada xato", "ru": "Опечатка в сумме", "en": "Typo in amount"},
+    "overpayment": {"uz": "Ortiqcha to'lov", "ru": "Переплата", "en": "Overpayment"},
+    "budget_limit": {"uz": "Byudjet chegarasi", "ru": "Лимит бюджета", "en": "Budget limit"},
+    "deal_to_buy": {"uz": "Arzon taklif", "ru": "Выгодная покупка", "en": "Deal to buy"},
+    "slow_stock": {"uz": "Sekin tovar", "ru": "Залежавшийся товар", "en": "Slow stock"},
+    "rfq_quote": {"uz": "So'rovga javob", "ru": "Ответ на запрос", "en": "Quote an RFQ"},
+}
+BLOCK_TYPES = ["price_range", "comparables", "kpi_row", "bar_chart", "line_chart", "table", "steps",
+               "loan_schedule", "file"]
+INTEGRATION_KINDS = ["telegram", "didox", "soliq", "billz", "onec", "bank"]
+INTEGRATION_LABELS: dict[str, dict[str, str]] = {
+    "telegram": {"uz": "Telegram kanallar", "ru": "Telegram-каналы", "en": "Telegram channels"},
+    "didox": {"uz": "Didox e-hisob-faktura", "ru": "Didox ЭСФ", "en": "Didox e-invoices"},
+    "soliq": {"uz": "Soliq.uz", "ru": "Soliq.uz", "en": "Soliq.uz"},
+    "billz": {"uz": "BILLZ kassa/ombor", "ru": "BILLZ касса/склад", "en": "BILLZ POS/stock"},
+    "onec": {"uz": "1C", "ru": "1С", "en": "1C"},
+    "bank": {"uz": "Bank ko'chirmasi", "ru": "Банковская выписка", "en": "Bank statement"},
+}
