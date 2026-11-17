@@ -33,7 +33,9 @@ HELP = ("BozorPilot AI bot 🤖\n\n"
         "/budget — byudjet holati / бюджет\n"
         "/audit — AI auditor natijalari / аудит\n"
         "/deals — bozordan arzon takliflar / выгодные предложения\n"
-        "/rfqs — sizga kelgan so'rovlar / входящие запросы\n\n"
+        "/rfqs — sizga kelgan so'rovlar / входящие запросы\n"
+        "/price <matn> — narxni baholash / оценить цену\n"
+        "↪️ Kanal postini forward qiling yoki 🎙 ovozli xabar yuboring — narxini aytaman.\n\n"
         "📷 Hisob-faktura rasmini yuboring — xarajatlarga qo'shiladi.\n"
         "Отправьте фото счёта — расходы будут добавлены автоматически.")
 
@@ -107,6 +109,8 @@ def handle_text(chat_id: int, text: str) -> str:
             return "🔥 Arzon takliflar:\n" + "\n".join(
                 f"• {market.listing_title(r)} — {fmt_uzs(r.price_uzs, LANG)} (−{round(r.discount_pct or 0)}%) "
                 f"{r.source_url or ''}" for r in rows)
+        if cmd == "/price":
+            return price_text(db, arg) if arg else "Masalan: /price cobalt 2021 45 ming probeg"
         if cmd == "/rfqs":
             rows = list(db.scalars(select(Rfq).where(Rfq.status == "open", Rfq.company_id != company.id,
                                                      Rfq.category.in_(company.categories or []))
@@ -117,6 +121,64 @@ def handle_text(chat_id: int, text: str) -> str:
                 f"• #{r.id} {r.brand or ''} {r.model} × {r.qty}"
                 + (f", maqsad {fmt_uzs(r.target_unit_price, LANG)}" if r.target_unit_price else "") for r in rows)
         return HELP
+
+
+def price_text(db: Any, text: str) -> str:
+    """Free text → parsed item → market price (+ badge when the text has a price)."""
+    from app.services import inputs, pricing
+
+    item = inputs.parse_text(db, text)
+    if not item["category"]:
+        return "Mahsulotni aniqlay olmadim. Masalan: /price iphone 13 128 ideal"
+    est = pricing.try_estimate(db, category=item["category"], model=item["model"], brand=item["brand"],
+                               condition=item["condition"], district=item["district"], attrs=item["attrs"],
+                               lang=LANG)
+    title = " ".join(x for x in (item["brand"], item["model"]) if x) or item["category"]
+    if est is None:
+        return f"{title}: bozor ma'lumotlari yetarli emas."
+    lines = [f"💰 {title}: {fmt_uzs(est.fair_price_uzs, LANG)}",
+             f"Oraliq: {fmt_uzs(est.range_uzs[0], LANG)} – {fmt_uzs(est.range_uzs[1], LANG)}",
+             f"Xarid narxi: {fmt_uzs(est.fair_buy_price_uzs, LANG)} ({est.comparables} ta e'lon)"]
+    if item["price"]:
+        from app.services import fx
+
+        price_uzs = fx.to_uzs(item["price"], item["currency"] or "UZS")
+        lines.append(pricing.badge(price_uzs, est.fair_price_uzs, LANG)[1])
+    if item["missing_fields"]:
+        lines.append("Aniqroq narx uchun: " + ", ".join(item["missing_fields"]))
+    return "\n".join(lines)
+
+
+async def handle_forward(chat_id: int, url: str, text: str) -> str:
+    """A forwarded channel post: price it from the DB/Telegram, else from its text."""
+    from app.services import inputs
+
+    with dbm.SessionLocal() as db:
+        try:
+            lst, _ = await inputs.listing_for_link(db, url)
+            priced = inputs.price_listing(db, lst, LANG)
+            est = priced["estimate"]
+            return (f"🔗 {market.listing_title(lst)}: {fmt_uzs(lst.price_uzs, LANG)}\n"
+                    f"Bozor: {fmt_uzs(est.fair_price_uzs, LANG)} — {priced['badge']}")
+        except AppError:
+            return await asyncio.to_thread(_price_text_session, text) if text else "Postni o'qiy olmadim."
+
+
+def _price_text_session(text: str) -> str:
+    with dbm.SessionLocal() as db:
+        return price_text(db, text)
+
+
+def handle_voice(chat_id: int, audio: bytes, mime: str) -> str:
+    """Voice note → transcript → priced item."""
+    from app.services import llm
+
+    if not llm.available():
+        return "Ovozli xabar uchun GEMINI_API_KEY kerak. Iltimos, matn bilan yozing: /price ..."
+    transcript = llm.transcribe(audio, mime)
+    if not transcript:
+        return "Ovozni tushuna olmadim."
+    return f"🎙 {transcript}\n" + _price_text_session(transcript)
 
 
 def handle_invoice(chat_id: int, image: bytes) -> str:
@@ -171,7 +233,15 @@ async def _poll(api: BotApi) -> None:
             if not chat_id:
                 continue
             try:
-                if msg.get("photo"):
+                fwd = msg.get("forward_from_chat") or {}
+                if fwd.get("username") and msg.get("forward_from_message_id"):
+                    url = f"https://t.me/{fwd['username']}/{msg['forward_from_message_id']}"
+                    reply = await handle_forward(chat_id, url, msg.get("text") or msg.get("caption") or "")
+                elif msg.get("voice") or msg.get("audio"):
+                    media = msg.get("voice") or msg.get("audio")
+                    audio = await api.download(media["file_id"])
+                    reply = await asyncio.to_thread(handle_voice, chat_id, audio, media.get("mime_type", "audio/ogg"))
+                elif msg.get("photo"):
                     image = await api.download(msg["photo"][-1]["file_id"])
                     reply = await asyncio.to_thread(handle_invoice, chat_id, image)
                 elif msg.get("text"):

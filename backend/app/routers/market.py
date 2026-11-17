@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
 from app.catalog import norm_model, normalize_district
+from app.config import RESALE_HANDLING_PCT
 from app.deps import CompanyDep, DbDep, LangDep
 from app.models import Listing
 from app.schemas.common import Category, Page
@@ -25,7 +26,7 @@ from app.schemas.market import (
     RentalYieldRequest,
     TrendOut,
 )
-from app.services import inputs, market, pricing
+from app.services import inputs, market, pricing, stock
 from app.services.sse import sse_response
 
 router = APIRouter(prefix="/market", tags=["market (#19)"])
@@ -114,13 +115,21 @@ async def market_price_from_link(body: LinkIn, db: DbDep, _: CompanyDep, lang: L
 
 
 @router.get("/sourcing-radar", response_model=Page[ListingOut])
-def market_sourcing_radar(db: DbDep, company: CompanyDep, category: Category | None = None,
+def market_sourcing_radar(db: DbDep, company: CompanyDep, lang: LangDep, category: Category | None = None,
                           min_discount_pct: float = Query(15, ge=0, le=90), days: int = Query(7, ge=1, le=30),
                           limit: int = Query(50, ge=1, le=200)) -> Page[ListingOut]:
     """Listings priced well below their fair price (best first)."""
     cats = [category] if category else (company.categories or [])
     rows = market.sourcing_radar(db, cats, min_discount_pct, days, limit)
-    return Page(items=[listing_out(r) for r in rows], next_cursor=None, total=len(rows))
+    base = stock.days_to_sell_base(db, company.id, lang)
+    items = []
+    for r in rows:
+        out = listing_out(r)
+        if r.fair_price_uzs:
+            out.expected_resale_margin_uzs = round(r.fair_price_uzs * (1 - RESALE_HANDLING_PCT) - r.price_uzs)
+        out.expected_days_to_sell = base.get(r.category, (None, ""))[0]
+        items.append(out)
+    return Page(items=items, next_cursor=None, total=len(rows))
 
 
 @router.get("/trend", response_model=TrendOut)

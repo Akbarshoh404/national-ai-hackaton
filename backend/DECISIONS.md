@@ -243,3 +243,30 @@ Choices made while building, where the spec left room. Grouped by area.
   header (e.g. "Jami summa" → total); each field is used at most once. A preview whose required columns aren't
   mapped returns the mapping with a row-0 error instead of failing. `POST /books/upload` takes an optional
   `mapping` form field (JSON, `null` = ignore column) and an optional `store_id`.
+
+## Exchange additions, integrations, bot
+- **Counter-offers:** the buyer counters a *pending* quote once (status `countered`, alert to the supplier). A
+  second counter returns 409 `counter_used`. A countered quote can't be accepted until the supplier responds.
+  The supplier either accepts (price = counter) or sends a final `unit_price` (or keeps the old one); both return
+  the quote to `pending`. Ranking always uses the current `unit_price`.
+- **Deal document** (`/exchange/deals/{id}/document`): parties only (404 for others). HTML, or PDF via WeasyPrint
+  with an HTML fallback and an `X-PDF-Fallback` header. It is labelled "not a tax invoice (hisob-faktura)".
+- `/exchange/demand.by_district` groups RFQs by (district, model); RFQs without a district go under "—".
+- **Radar rows:** `expected_resale_margin_uzs` = fair × (1 − 3%) − price (`RESALE_HANDLING_PCT`).
+  `expected_days_to_sell` is the company's base days for the category (a listing bought below market and resold
+  at fair price is rated "fair").
+- **Integrations** (`services/integrations/`): one `Adapter.fetch` interface. Telegram is the live listener;
+  **Didox, Soliq, BILLZ, 1C and bank are mock adapters only** (`mode: "mock"`), reading `data/samples/`. Real
+  access needs partner agreements.
+  - A sync goes through `books.create_transactions` (or inventory for BILLZ) and then the AI auditor. The response
+    lists the audit flags that touch the imported rows.
+  - Imported external ids (invoice numbers, file+date) are stored in `integrations.details.imported`, so syncing
+    twice imports nothing.
+  - `data/samples/didox_invoice.json` plants a wrong total (4 × 2,800,000 ≠ 12,200,000) and an above-market
+    purchase (iPhone 14 A at 7.2M). The 1C sample uses the 1C export layout; the importer gained the aliases
+    `Номенклатура`, `ВидОперации`, `Поступление` and `Списание`.
+- **Bot:**
+  - A forwarded channel post is priced via `price-from-link` (DB, or a Telegram fetch when connected); otherwise
+    its text is parsed and priced.
+  - A voice note is transcribed and priced (it needs a Gemini key, and the bot says so without one).
+  - `/price <text>` parses and prices free text.

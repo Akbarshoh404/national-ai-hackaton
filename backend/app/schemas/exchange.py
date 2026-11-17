@@ -68,6 +68,8 @@ class QuoteOut(ORM):
     delivery_days: int
     note: str | None
     status: str
+    counter_unit_price: float | None = None
+    counter_note: str | None = None
     created_at: UTCDateTime
 
 
@@ -97,6 +99,8 @@ class RankedQuote(BaseModel):
     delivery_days: int
     note: str | None
     status: str
+    counter_unit_price: float | None = None
+    counter_note: str | None = None
     score: float
     score_breakdown: ScoreBreakdown
     vs_fair_purchase_pct: float | None = Field(None, description="vs market fair purchase price; negative = cheaper")
@@ -213,7 +217,26 @@ class DemandListed(BaseModel):
     avg_price_uzs: float
 
 
+class DemandDistrict(BaseModel):
+    district: str
+    category: str
+    model: str
+    requests: int
+    units: int
+
+
 class DemandOut(BaseModel):
     days: int
     most_requested: list[DemandRequested]
     most_listed: list[DemandListed]
+    by_district: list[DemandDistrict] = []
+
+
+class CounterIn(BaseModel):
+    unit_price: float = Field(gt=0, description="Buyer's counter price (UZS per unit)")
+    note: str | None = None
+
+
+class RespondIn(BaseModel):
+    accept: bool
+    unit_price: float | None = Field(None, gt=0, description="When not accepting: the supplier's final price")

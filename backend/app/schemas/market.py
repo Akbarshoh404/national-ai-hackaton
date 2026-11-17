@@ -30,6 +30,8 @@ class ListingOut(ORM):
     origin: str
     fair_price_uzs: float | None = None
     discount_pct: float | None = Field(None, description="Positive = below fair price")
+    expected_resale_margin_uzs: float | None = Field(None, description="Radar only: fair − price − handling")
+    expected_days_to_sell: float | None = Field(None, description="Radar only: from your sales history")
 
 
 class PriceSample(BaseModel):

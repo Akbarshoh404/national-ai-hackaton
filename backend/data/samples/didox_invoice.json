@@ -1,0 +1,19 @@
+{
+  "_comment": "SYNTHETIC DEMO e-invoice (Didox-like shape). Planted: one wrong total, one above-market purchase.",
+  "invoices": [
+    {
+      "invoice_no": "DX-2026-118734",
+      "date": null,
+      "seller": {"name": "Qora Bozor Opt MChJ", "tin": "309112233"},
+      "buyer": {"name": "Chilonzor Phone Market", "tin": "301234567"},
+      "items": [
+        {"name": "Samsung Galaxy A54 128GB yangi", "category": "phone", "brand": "Samsung", "model": "Galaxy A54",
+         "condition": "new", "attrs": {"storage_gb": 128}, "qty": 4, "unit_price": 2800000, "total": 12200000},
+        {"name": "Apple iPhone 14 128GB (A)", "category": "phone", "brand": "Apple", "model": "iPhone 14",
+         "condition": "A", "attrs": {"storage_gb": 128}, "qty": 2, "unit_price": 7200000, "total": 14400000},
+        {"name": "Apple iPhone 12 128GB (B)", "category": "phone", "brand": "Apple", "model": "iPhone 12",
+         "condition": "B", "attrs": {"storage_gb": 128}, "qty": 3, "unit_price": 3300000, "total": 9900000}
+      ]
+    }
+  ]
+}

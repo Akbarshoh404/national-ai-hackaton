@@ -58,6 +58,17 @@ register({
     "match.budget": {"uz": "Byudjetga mos ({pct}% maqsaddan)", "ru": "В бюджете ({pct}% от цели)",
                      "en": "Within budget ({pct}% of target)"},
     "match.model": {"uz": "Model mos", "ru": "Модель совпадает", "en": "Same model"},
+    "counter.title": {"uz": "Qarshi taklif: {item}", "ru": "Встречное предложение: {item}",
+                      "en": "Counter-offer: {item}"},
+    "counter.message": {"uz": "{buyer} {price} taklif qilmoqda (sizniki {orig}).",
+                        "ru": "{buyer} предлагает {price} (ваша цена {orig}).",
+                        "en": "{buyer} offers {price} (your price {orig})."},
+    "respond.title": {"uz": "Javob: {item}", "ru": "Ответ: {item}", "en": "Response: {item}"},
+    "respond.accepted": {"uz": "{supplier} qarshi taklifni qabul qildi: {price}.",
+                         "ru": "{supplier} принял встречную цену: {price}.",
+                         "en": "{supplier} accepted your counter: {price}."},
+    "respond.final": {"uz": "{supplier} yakuniy narxi: {price}.", "ru": "{supplier}: финальная цена {price}.",
+                      "en": "{supplier}'s final price: {price}."},
     "match.split": {"uz": "Komissiya bo'linishi {mine}/{theirs}", "ru": "Раздел комиссии {mine}/{theirs}",
                     "en": "Commission split {mine}/{theirs}"},
 })
@@ -196,6 +207,7 @@ def rank_quotes(db: Session, company: Company, rfq_id: int, lang: str) -> dict[s
         ranked.append({"id": q.id, "rfq_id": q.rfq_id, "supplier": {"id": sup.id, "name": sup.name, **rep},
                        "unit_price_uzs": q.unit_price, "qty": q.qty, "delivery_days": q.delivery_days,
                        "note": q.note, "status": q.status, "score": score,
+                       "counter_unit_price": q.counter_unit_price, "counter_note": q.counter_note,
                        "score_breakdown": {"price": round(price_s, 1), "rating": round(rating_s, 1),
                                            "delivery": round(delivery_s, 1), "quantity": round(qty_s, 1),
                                            "penalty": penalty},
@@ -298,6 +310,84 @@ def accept_quote(db: Session, company: Company, quote_id: int) -> Deal:
                      rfq_id=rfq.id, quote_id=q.id)
     db.commit()
     return deal
+
+
+def counter_quote(db: Session, company: Company, quote_id: int, unit_price: float, note: str | None) -> Quote:
+    """Buyer counters a pending quote once; the supplier is alerted."""
+    q = db.get(Quote, quote_id)
+    if q is None:
+        raise not_found("quote", quote_id)
+    rfq = db.get(Rfq, q.rfq_id)
+    if rfq.company_id != company.id:
+        raise forbidden("Only the buyer can counter a quote")
+    if rfq.status != "open":
+        raise conflict("rfq_closed", "This request is no longer open")
+    if q.counter_unit_price is not None:
+        raise conflict("counter_used", "Only one counter round is allowed per quote")
+    res = db.execute(update(Quote).where(Quote.id == q.id, Quote.status == "pending")
+                     .values(status="countered", counter_unit_price=unit_price, counter_note=note))
+    if res.rowcount != 1:
+        db.rollback()
+        raise conflict("quote_not_pending", "This quote is no longer pending")
+    db.refresh(q)
+    alerts.create(db, company_id=q.supplier_id, type="quote", category=rfq.category, severity="info",
+                  i18n=_texts("counter.title", "counter.message", item=item_title(rfq), buyer=company.name,
+                              price_uzs=unit_price, orig_uzs=q.unit_price),
+                  payload={"rfq_id": rfq.id, "quote_id": q.id}, commit=False)
+    db.commit()
+    return q
+
+
+def respond_counter(db: Session, company: Company, quote_id: int, accept: bool, unit_price: float | None) -> Quote:
+    """Supplier answers the counter: accept (price = counter) or set a final price. Back to `pending`."""
+    q = db.get(Quote, quote_id)
+    if q is None:
+        raise not_found("quote", quote_id)
+    if q.supplier_id != company.id:
+        raise forbidden("Only the supplier can respond to a counter")
+    if q.status != "countered":
+        raise conflict("no_counter", "There is no open counter-offer on this quote")
+    new_price = q.counter_unit_price if accept else (unit_price or q.unit_price)
+    db.execute(update(Quote).where(Quote.id == q.id, Quote.status == "countered")
+               .values(status="pending", unit_price=new_price))
+    db.refresh(q)
+    rfq = db.get(Rfq, q.rfq_id)
+    alerts.create(db, company_id=rfq.company_id, type="quote", category=rfq.category, severity="info",
+                  i18n=_texts("respond.title", "respond.accepted" if accept else "respond.final",
+                              item=item_title(rfq), supplier=company.name, price_uzs=new_price),
+                  payload={"rfq_id": rfq.id, "quote_id": q.id, "accepted": accept}, commit=False)
+    db.commit()
+    return q
+
+
+def deal_document_html(db: Session, deal: Deal, lang: str) -> str:
+    """Deal act / receipt (not a tax invoice)."""
+    import html
+
+    e = html.escape
+    buyer, seller = db.get(Company, deal.buyer_id), db.get(Company, deal.seller_id)
+    labels = {"uz": ("Bitim dalolatnomasi", "Sotuvchi", "Xaridor", "Mahsulot", "Xususiyatlar", "Soni",
+                     "Narx", "Jami", "Sana", "STIR"),
+              "ru": ("Акт сделки", "Продавец", "Покупатель", "Товар", "Характеристики", "Кол-во", "Цена",
+                     "Итого", "Дата", "ИНН"),
+              "en": ("Deal record", "Seller", "Buyer", "Item", "Attributes", "Qty", "Unit price", "Total", "Date",
+                     "STIR")}[lang]
+    t_, s_, b_, i_, a_, q_, p_, tot_, d_, stir_ = labels
+    attrs = ", ".join(f"{k}: {v}" for k, v in (deal.attrs or {}).items()) or "—"
+    disclaimer = ("BozorPilot deal record — not a tax invoice (hisob-faktura); issue the e-invoice in "
+                  "Didox/Soliq.")
+    return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><title>{t_} #{deal.id}</title>
+<style>body{{font-family:Arial,sans-serif;max-width:760px;margin:24px auto;font-size:13px}}table{{width:100%;
+border-collapse:collapse}}td,th{{border:1px solid #ccc;padding:6px;text-align:left}}.muted{{color:#666;
+font-size:11px}}</style></head><body>
+<h1>{t_} #{deal.id}</h1><p>{d_}: {deal.created_at.date().isoformat()}</p>
+<table><tr><th>{s_}</th><td>{e(seller.name)} ({stir_} {e(seller.stir)})</td></tr>
+<tr><th>{b_}</th><td>{e(buyer.name)} ({stir_} {e(buyer.stir)})</td></tr>
+<tr><th>{i_}</th><td>{e(item_title(deal))}</td></tr><tr><th>{a_}</th><td>{e(attrs)}</td></tr>
+<tr><th>{q_}</th><td>{deal.qty}</td></tr><tr><th>{p_}</th><td>{e(fmt_uzs(deal.unit_price, lang))}</td></tr>
+<tr><th>{tot_}</th><td><b>{e(fmt_uzs(deal.total, lang))}</b></td></tr></table>
+<p class="muted">Deal ID {deal.id} · RFQ {deal.rfq_id or "—"} · offer {deal.offer_id or "—"}</p>
+<p class="muted"><b>{e(disclaimer)}</b></p></body></html>"""
 
 
 # --------------------------------------------------------------------------- #
@@ -415,4 +505,13 @@ def demand(db: Session, days: int, category: str | None, limit: int = 10) -> dic
         lq = lq.where(Listing.category == category)
     listed = [{"category": c, "model": " ".join(x for x in (b, m) if x), "listings": int(n),
                "avg_price_uzs": round(float(avg))} for c, _, b, m, n, avg in db.execute(lq).all()]
-    return {"days": days, "most_requested": requested, "most_listed": listed}
+    by_district: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in db.scalars(q):
+        k = (r.district or "—", norm_model(r.model, r.brand))
+        e = by_district.setdefault(k, {"district": k[0], "category": r.category,
+                                       "model": " ".join(x for x in (r.brand, r.model) if x), "requests": 0,
+                                       "units": 0})
+        e["requests"] += 1
+        e["units"] += r.qty
+    districts = sorted(by_district.values(), key=lambda e: (e["district"], -e["requests"], -e["units"]))
+    return {"days": days, "most_requested": requested, "most_listed": listed, "by_district": districts}

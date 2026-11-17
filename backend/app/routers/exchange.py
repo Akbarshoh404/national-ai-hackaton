@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Query
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import func, or_, select
 
 from app.catalog import normalize_district
@@ -15,6 +16,7 @@ from app.routers.market import estimate_out
 from app.schemas.common import Category, OkResponse, Page
 from app.schemas.exchange import (
     BuyIn,
+    CounterIn,
     DealOut,
     DemandOut,
     OfferIn,
@@ -26,6 +28,7 @@ from app.schemas.exchange import (
     RankedQuotes,
     RatingIn,
     RatingOut,
+    RespondIn,
     RfqCreated,
     RfqIn,
     RfqOut,
@@ -109,6 +112,43 @@ def exchange_accept_quote(quote_id: int, db: DbDep, company: CompanyDep) -> Deal
     deal = exchange.accept_quote(db, company, quote_id)
     activity.log(db, company, "quote.accept", "deal", deal.id, f"Deal #{deal.id}: {deal.model} × {deal.qty}")
     return deal_out(db, deal, company)
+
+
+@router.post("/quotes/{quote_id}/counter", response_model=QuoteOut)
+def exchange_counter_quote(quote_id: int, body: CounterIn, db: DbDep, company: CompanyDep) -> QuoteOut:
+    """Buyer counters a quote once; the supplier is alerted."""
+    q = exchange.counter_quote(db, company, quote_id, body.unit_price, body.note)
+    activity.log(db, company, "quote.counter", "quote", q.id, f"Counter {round(body.unit_price):,} on quote #{q.id}")
+    return QuoteOut.model_validate(q)
+
+
+@router.post("/quotes/{quote_id}/respond", response_model=QuoteOut)
+def exchange_respond_counter(quote_id: int, body: RespondIn, db: DbDep, company: CompanyDep) -> QuoteOut:
+    """Supplier accepts the counter (price = counter) or sets a final price; the quote returns to pending."""
+    q = exchange.respond_counter(db, company, quote_id, body.accept, body.unit_price)
+    activity.log(db, company, "quote.respond", "quote", q.id,
+                 f"{'Accepted' if body.accept else 'Final price'} {round(q.unit_price):,} on quote #{q.id}")
+    return QuoteOut.model_validate(q)
+
+
+@router.get("/deals/{deal_id}/document", response_class=HTMLResponse,
+            responses={200: {"content": {"text/html": {}, "application/pdf": {}}}})
+def exchange_deal_document(deal_id: int, db: DbDep, company: CompanyDep, lang: LangDep,
+                           format: Literal["html", "pdf"] = "html") -> Response:
+    """Deal act / receipt for both parties (not a tax invoice — issue the e-invoice in Didox/Soliq)."""
+    d = db.get(Deal, deal_id)
+    if d is None or company.id not in (d.buyer_id, d.seller_id):
+        raise not_found("deal", deal_id)
+    doc = exchange.deal_document_html(db, d, lang)
+    if format == "pdf":
+        from app.services.finance import render_pdf
+
+        pdf = render_pdf(doc)
+        if pdf is not None:
+            return Response(pdf, media_type="application/pdf",
+                            headers={"Content-Disposition": f'attachment; filename="deal_{d.id}.pdf"'})
+        return HTMLResponse(doc, headers={"X-PDF-Fallback": "weasyprint-not-installed"})
+    return HTMLResponse(doc)
 
 
 @router.get("/rfqs/{rfq_id}/matches", response_model=list[OfferMatch])

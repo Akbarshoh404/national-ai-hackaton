@@ -6,12 +6,22 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from app.catalog import normalize_district
-from app.deps import CompanyDep, DbDep, OwnerDep, hash_key, new_api_key
+from app.deps import CompanyDep, DbDep, LangDep, OwnerDep, hash_key, new_api_key
 from app.errors import not_found
 from app.models import ActivityLog, Store, User
 from app.schemas.common import OkResponse, Page
-from app.schemas.platform import ActivityOut, StoreIn, StoreOut, StorePatch, UserCreated, UserIn, UserOut
-from app.services import activity
+from app.schemas.platform import (
+    ActivityOut,
+    IntegrationOut,
+    StoreIn,
+    StoreOut,
+    StorePatch,
+    SyncResult,
+    UserCreated,
+    UserIn,
+    UserOut,
+)
+from app.services import activity, integrations
 
 router = APIRouter(tags=["platform"])
 
@@ -90,3 +100,18 @@ def activity_list(db: DbDep, company: CompanyDep, entity: str | None = None, cur
         items.append(out)
     nxt = str(rows[limit - 1].id) if len(rows) > limit else None
     return Page(items=items, next_cursor=nxt, total=total)
+
+
+@router.get("/integrations", response_model=list[IntegrationOut])
+def integrations_list(db: DbDep, company: CompanyDep, lang: LangDep) -> list[IntegrationOut]:
+    """Integration status cards. Telegram is live; Didox/Soliq/BILLZ/1C/bank are mock adapters."""
+    return [IntegrationOut(**c) for c in integrations.cards(db, company, lang)]
+
+
+@router.post("/integrations/{kind}/sync", response_model=SyncResult)
+def integrations_sync(kind: str, db: DbDep, company: CompanyDep, lang: LangDep) -> SyncResult:
+    """Import from an integration (mock sample) through the normal upload + audit path."""
+    out = integrations.sync(db, company, kind, lang)
+    activity.log(db, company, f"integration.sync.{kind}", "integration", None,
+                 f"{kind} sync ({out['mode']}): {out['created']} records, {len(out['audit_flags'])} audit flags")
+    return SyncResult(**out)

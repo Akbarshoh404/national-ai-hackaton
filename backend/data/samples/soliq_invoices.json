@@ -1,0 +1,9 @@
+{
+  "_comment": "SYNTHETIC DEMO e-invoice (Soliq-like shape), clean.",
+  "invoices": [
+    {"invoice_no": "SQ-2026-55120", "date": null, "seller": {"name": "Uzonline", "tin": "200111222"},
+     "buyer": {"name": "demo", "tin": "000000000"},
+     "items": [{"name": "Internet xizmati", "category": null, "expense_category": "internet", "qty": 1,
+                "unit_price": 350000, "total": 350000}]}
+  ]
+}

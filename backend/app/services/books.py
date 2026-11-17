@@ -121,7 +121,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 # --------------------------------------------------------------------------- #
 _COLUMN_ALIASES: dict[str, list[str]] = {
     "date": ["date", "sana", "дата", "kun", "день"],
-    "type": ["type", "tur", "turi", "тип", "вид"],
+    "type": ["type", "tur", "turi", "тип", "вид", "видоперации", "вид операции"],
     "category": ["category", "kategoriya", "категория", "modda", "статья", "toifa"],
     "total": ["total", "summa", "сумма", "jami", "итого", "amount", "сумма итого"],
     "qty": ["qty", "quantity", "soni", "miqdor", "miqdori", "кол-во", "количество", "kol-vo"],
@@ -131,11 +131,12 @@ _COLUMN_ALIASES: dict[str, list[str]] = {
     "note": ["note", "izoh", "примечание", "comment", "комментарий", "описание", "tavsif"],
     "item_category": ["item_category", "mahsulot turi", "тип товара"],
     "brand": ["brand", "brend", "бренд", "marka", "марка"],
-    "model": ["model", "модель", "mahsulot", "товар", "product"],
+    "model": ["model", "модель", "mahsulot", "товар", "product", "номенклатура"],
     "condition": ["condition", "holat", "holati", "состояние"],
 }
 _TYPE_ALIASES = {"income": "income", "kirim": "income", "доход": "income", "приход": "income", "daromad": "income",
-                 "expense": "expense", "chiqim": "expense", "расход": "expense", "xarajat": "expense"}
+                 "expense": "expense", "chiqim": "expense", "расход": "expense", "xarajat": "expense",
+                 "поступление": "income", "списание": "expense"}
 
 TEMPLATE_CSV = (
     "date,type,category,item_category,brand,model,condition,qty,unit_price,total,counterparty,note\n"
@@ -268,7 +269,9 @@ def _clean(v: Any) -> Any:
 
 
 def _row(rec: dict[str, Any]) -> dict[str, Any]:
-    d = pd.to_datetime(_clean(rec.get("date")), dayfirst=True, errors="coerce")
+    raw_date = _clean(rec.get("date"))
+    iso = isinstance(raw_date, str) and re.match(r"^\d{4}-\d{2}-\d{2}", raw_date)
+    d = pd.to_datetime(raw_date, dayfirst=not iso, errors="coerce")
     if d is pd.NaT or d is None or pd.isna(d):
         raise ValueError("invalid date")
     cat = _canon_category(rec.get("category"))
