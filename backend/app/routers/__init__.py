@@ -9,6 +9,7 @@ from app.routers import (
            dashboard,
            decisions,
            exchange,
+           lender,
            market,
            meta,
            platform,
@@ -17,5 +18,5 @@ from app.routers import (
 
 ROUTERS = [
     auth.router, meta.router, dashboard.router, decisions.router, market.router, stock.router, books.router,
-    exchange.router, advisor.router, alerts.router, platform.router, admin.router,
+    exchange.router, advisor.router, alerts.router, platform.router, lender.router, admin.router,
 ]

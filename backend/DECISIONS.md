@@ -190,3 +190,28 @@ Choices made while building, where the spec left room. Grouped by area.
   - Terms above the product maximum return 422 `term_too_long`.
 - **Schedule:** the full annuity schedule is rounded to 0.01. The last row absorbs rounding, so Σ principal equals
   the principal exactly and Σ payment = principal + Σ interest.
+
+## Lender & bazaar console
+- **Liquidation value** = p25 × (1 − haircut). Haircuts are in config: car 10%, house 10%, phone 20%, laptop 25%.
+- **Valuations** are logged as activity rows (`action = lender.valuation`). Each valuation response returns
+  `valuations_this_month`, and the collateral summary does too (usage metric for the business model).
+- A lender can value an applicant's inventory unit only if that borrower has applied to this lender
+  (403 otherwise). Valuing by `url` uses listings already in the DB; live Telegram fetch is part of
+  `/market/price-from-link`.
+- **Collateral status:** `breach` when LTV > limit, `watch` when LTV > limit − 5 points, `no_data` when the engine
+  can't price the item. Revaluation is live and batched per identical spec. `value_change_30d_pct` compares the
+  first and last weekly medians over the last 45 days (by model for goods, by category for apartments).
+- **Breach alerts** go to the lender (`type = system`, `payload.key = collateral:<id>`), at most once per item per
+  day.
+- **Loan applications:** owner only (managers and appraisers get 403). `consent: true` is required (422
+  `consent_required`). The snapshot is frozen at submission: readiness with factors, 6-month cash flow, audit
+  summary, stock tiles at market value, the credit calculation (first 12 schedule rows) and pledged units valued
+  at market. A final decision (approved/rejected) can't be changed (409).
+- `GET /advisor/lenders` lists lender companies for the borrower's form.
+- The lender sees the business plan at `/lender/applications/{id}/business-plan`, generated from the borrower's
+  live books (the snapshot keeps the numbers as submitted).
+- `/partner/market-report` is for lender and market_admin. It covers the top 100 (model, district) groups by
+  volume, the category's weekly trend and listing counts by seller type; `format=xlsx` gives three sheets.
+- **Seed:** Demo Lizing Bank holds 10 collateral items. Balances are set as a share of live market value
+  (Malibu 2 at 80% → breach, Tracker 2 at 67% → watch). Chilonzor's 150M business-loan application pledges 5
+  iPhone 13 units.

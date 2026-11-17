@@ -135,7 +135,47 @@ def run(db: Session, companies: dict[str, Company], today: date) -> dict[str, in
                district=peer.district, deadline=today + timedelta(days=4), note="Korobkasi bilan"))
 
     units = seed_stock(db, ch, stores, today, rng)
-    return {"stock_units": units, "integrations": len(INTEGRATION_KINDS)}
+    db.flush()
+    pricing.invalidate()
+    collateral = seed_lender(db, companies["demo-bank"], ch, today)
+    return {"stock_units": units, "integrations": len(INTEGRATION_KINDS), "collateral": collateral}
+
+
+# (borrower, category, brand, model, condition, district, attrs, qty, balance as share of market value)
+COLLATERAL = [
+    ("Sergeli Avto", "car", "Chevrolet", "Cobalt", "used", None, {"year": 2021, "mileage_km": 50000}, 1, 0.50),
+    ("Sergeli Avto", "car", "Chevrolet", "Gentra", "used", None, {"year": 2020, "mileage_km": 70000}, 1, 0.45),
+    ("IP Rahimov", "car", "Chevrolet", "Malibu 2", "used", None, {"year": 2022, "mileage_km": 30000}, 1, 0.80),
+    ("IP Karimova", "car", "Chevrolet", "Tracker 2", "used", None, {"year": 2022, "mileage_km": 25000}, 1, 0.67),
+    ("OOO Yo'l Servis", "car", "Chevrolet", "Damas", "used", None, {"year": 2019, "mileage_km": 90000}, 2, 0.40),
+    ("IP Toshmatov", "car", "BYD", "Song Plus", "used", None, {"year": 2023, "mileage_km": 15000}, 1, 0.55),
+    ("Yunusobod Realty", "house", None, "3-xonali kvartira", "used", "Yunusobod", {"rooms": 3, "area_m2": 85}, 1,
+     0.50),
+    ("IP Azimova", "house", None, "2-xonali kvartira", "used", "Chilonzor", {"rooms": 2, "area_m2": 55}, 1, 0.60),
+    ("IP Yusupov", "house", None, "2-xonali kvartira", "new", "Mirzo Ulug'bek", {"rooms": 2, "area_m2": 60}, 1,
+     0.35),
+    ("Chilonzor Phone Market", "phone", "Apple", "iPhone 13", "A", None, {"storage_gb": 128}, 20, 0.45),
+]
+
+
+def seed_lender(db: Session, bank: Company, borrower: Company, today: date) -> int:
+    """Demo Lizing Bank: ~10 collateral items (one breach, one watch) and one submitted application."""
+    from app.models import Collateral
+    from app.services import lender
+
+    app = lender.submit_application(db, borrower, {
+        "lender_id": bank.id, "product": "business_loan", "principal_uzs": 150_000_000, "months": 24,
+        "purpose": "Aylanma mablag': iPhone zaxirasini to'ldirish", "consent": True,
+        "collateral_inventory_ids": [i for i in db.scalars(select(InventoryItem.id).where(
+            InventoryItem.company_id == borrower.id, InventoryItem.model == "iPhone 13",
+            InventoryItem.status == "in_stock").limit(5))]}, "en")
+    for name, cat, brand, model, cond, district, attrs, qty, share in COLLATERAL:
+        est = pricing.estimate(db, cat, model, cond, district, attrs, brand=brand)
+        db.add(Collateral(lender_id=bank.id, borrower_name=name, category=cat, brand=brand, model=model,
+                          condition=cond, district=district, attrs=attrs, qty=qty,
+                          loan_balance_uzs=round(est.fair_price_uzs * qty * share, -3), ltv_limit=0.7,
+                          loan_application_id=app.id if name == borrower.name else None))
+    return len(COLLATERAL)
 
 
 def seed_stock(db: Session, ch: Company, stores: list[int], today: date, rng: random.Random) -> int:
