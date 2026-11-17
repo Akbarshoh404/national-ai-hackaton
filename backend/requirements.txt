@@ -1,0 +1,17 @@
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+SQLAlchemy==2.1.9
+alembic==1.20.1
+pydantic==2.14.3
+pydantic-settings==2.16.3
+pandas==3.1.1
+numpy==2.4.6
+openpyxl==3.1.5
+Telethon==1.45.0
+httpx==0.28.1
+google-genai==3.4.0
+python-multipart==0.0.34
+PyYAML==6.0.3
+psycopg[binary]>=3.2
+# optional: PDF business plans (needs system libs pango/cairo; the Dockerfile installs them)
+# weasyprint>=62

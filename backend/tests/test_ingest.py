@@ -201,6 +201,10 @@ def test_sse_filtering():
     own = Event("alert.created", {}, 5, None)
     assert visible(own, 5, {"phone"}) and not visible(own, 6, {"phone"})
     bus.publish("listing.created", {"x": 1}, category="phone")  # no loop bound in tests: must not raise
+    a, b = bus.subscribe(), bus.subscribe()  # subscribers must be hashable and distinct
+    assert bus.subscriber_count >= 2
+    bus.unsubscribe(a)
+    bus.unsubscribe(b)
 
 
 def test_sse_requires_auth(client):

@@ -23,7 +23,7 @@ class Event:
     id: int = 0
 
 
-@dataclass
+@dataclass(eq=False)  # identity hash: subscribers live in a set
 class _Sub:
     queue: asyncio.Queue[Event] = field(default_factory=lambda: asyncio.Queue(maxsize=500))
 
