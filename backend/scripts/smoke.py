@@ -141,11 +141,110 @@ def main() -> None:
     call("POST", "/admin/fx/refresh", ADMIN)
     call("GET", "/admin/fx/refresh", ADMIN)
 
+    v2(ch, to, sa, yr)
+
     bad = [r for r in results if r[0] != "OK "]
     for status, name, code, ms in results:
         print(f"{status} {code} {ms:7.0f} ms  {name}")
     print(f"\n{len(results) - len(bad)}/{len(results)} OK")
     sys.exit(1 if bad else 0)
+
+
+def v2(ch: dict, to: dict, sa: dict, yr: dict) -> None:
+    """Every v2 endpoint once with the demo keys."""
+    mgr, appr = {"X-API-Key": "demo-chilonzor-manager"}, {"X-API-Key": "demo-chilonzor-appraiser"}
+    bank, bozor = {"X-API-Key": "demo-demo-bank"}, {"X-API-Key": "demo-bozor-admin"}
+    call("POST", "/auth/demo-login", json={"company_slug": "demo-bank"})
+    call("GET", "/meta", ch)
+
+    # platform
+    stores = call("GET", "/stores", ch).json()["items"]
+    st = call("POST", "/stores", ch, expect=201, json={"name": "Smoke nuqta", "district": "Sergeli"}).json()
+    call("PATCH", f"/stores/{st['id']}", ch, json={"active": False})
+    u = call("POST", "/users", sa, expect=201, json={"name": "Smoke user", "role": "manager"}).json()
+    call("GET", "/users", sa)
+    call("DELETE", f"/users/{u['user']['id']}", sa)
+    call("GET", "/activity?limit=5", ch)
+    call("GET", "/users", mgr, expect=403)
+    call("GET", "/books/audit", appr, expect=403)
+
+    # stock command center
+    call("GET", f"/stock/units?limit=100&store_id={stores[0]['id']}", ch)
+    units = call("GET", "/stock/units?rating=overpriced", appr).json()["items"]
+    call("GET", "/stock/summary", ch)
+    if units:
+        call("POST", "/stock/reprice", ch, json={"inventory_ids": [units[0]["inventory_id"]], "use_suggested": True})
+    aging = call("GET", "/stock/units?aging_only=true", ch).json()["items"]
+    if aging:
+        call("POST", "/stock/list-on-exchange", ch, expect=201, json={"inventory_ids": [aging[0]["inventory_id"]]})
+    for fmt in ("xlsx", "csv", "1c"):
+        call("GET", f"/stock/export?format={fmt}", ch)
+        call("GET", f"/books/transactions/export?format={fmt}", ch)
+
+    # decisions
+    cards = call("GET", "/decisions?refresh=true", ch).json()["items"]
+    by_type = {c["type"]: c for c in cards}
+    if "typo_amount" in by_type:
+        call("POST", f"/decisions/{by_type['typo_amount']['id']}/approve", ch)
+        call("POST", f"/decisions/{by_type['typo_amount']['id']}/approve", ch, expect=409)
+    if "rfq_quote" in by_type:
+        call("POST", f"/decisions/{by_type['rfq_quote']['id']}/ignore", ch)
+    call("GET", "/dashboard", ch)
+
+    # copilot + credit
+    call("POST", "/advisor/chat", ch, json={"question": "Nega bu qimmat?",
+                                            "context": {"screen": "stock",
+                                                        "inventory_ids": [x["inventory_id"] for x in units[:2]]}})
+    call("POST", "/advisor/chat", ch, json={"question": "100 mln kredit 24 oyga"})
+    call("POST", "/advisor/credit", yr, json={"product": "mortgage", "months": 180, "asset_value_uzs": 900_000_000})
+    call("GET", "/advisor/business-plan?loan_amount_uzs=100000000&loan_months=24", ch)
+
+    # fast inputs
+    call("POST", "/input/parse", ch, json={"text": "cobalt 2021 45 ming probeg pozitsiya 4"})
+    call("POST", "/input/imei", ch, json={"imei": "353409131234565"})
+    call("POST", "/input/voice", ch, expect=(200, 503), files={"file": ("v.ogg", b"OggS", "audio/ogg")})
+    csv = "Sana;Modda;Jami summa\n2026-11-05;svet;900000\n"
+    call("POST", "/books/upload/preview", ch, files={"file": ("b.csv", csv.encode(), "text/csv")})
+    call("POST", "/market/price-from-link", ch, expect=(200, 404), json={"url": "https://t.me/mixmobiles/1"})
+
+    # exchange additions
+    rfq = call("POST", "/exchange/rfqs", ch, expect=201, json={
+        "category": "phone", "model": "iPhone 14", "condition": "A", "attrs": {"storage_gb": 128}, "qty": 2}).json()
+    q = call("POST", f"/exchange/rfqs/{rfq['rfq']['id']}/quotes", to, expect=201,
+             json={"unit_price": 5_900_000, "qty": 2, "delivery_days": 2}).json()
+    call("POST", f"/exchange/quotes/{q['id']}/counter", ch, json={"unit_price": 5_600_000})
+    call("POST", f"/exchange/quotes/{q['id']}/respond", to, json={"accept": True})
+    deal = call("POST", f"/exchange/quotes/{q['id']}/accept", ch).json()
+    call("GET", f"/exchange/deals/{deal['id']}/document", to)
+    call("GET", f"/exchange/deals/{deal['id']}/document?format=pdf", ch)
+    call("GET", "/exchange/demand?days=30", to)
+
+    # lender & bazaar console
+    lenders = call("GET", "/advisor/lenders", sa).json()
+    call("POST", "/advisor/loan-applications", sa, expect=201, json={
+        "lender_id": lenders[0]["id"], "product": "auto_loan", "principal_uzs": 150_000_000, "months": 36,
+        "purpose": "Avto zaxirasi", "consent": True})
+    call("GET", "/advisor/loan-applications", sa)
+    call("POST", "/lender/valuations", bank, json={"category": "car", "model": "Gentra",
+                                                   "attrs": {"year": 2020, "mileage_km": 70000}})
+    call("GET", "/lender/collateral", bank)
+    call("POST", "/lender/collateral", bank, expect=201, json={
+        "borrower_name": "Smoke IP", "category": "car", "model": "Spark", "attrs": {"year": 2019},
+        "loan_balance_uzs": 40_000_000})
+    call("GET", "/lender/collateral/summary", bank)
+    apps = call("GET", "/lender/applications", bank).json()["items"]
+    call("GET", f"/lender/applications/{apps[0]['id']}", bank)
+    call("GET", f"/lender/applications/{apps[0]['id']}/business-plan", bank)
+    call("POST", f"/lender/applications/{apps[0]['id']}/decision", bank, expect=(200, 409),
+         json={"status": "reviewing"})
+    call("GET", "/partner/market-report?category=phone", bozor)
+    call("GET", "/partner/market-report?category=car&format=xlsx", bank)
+    call("GET", "/lender/collateral", ch, expect=403)
+
+    # integrations
+    call("GET", "/integrations", ch)
+    call("POST", "/integrations/didox/sync", ch)
+    call("POST", "/integrations/bank/sync", sa)
 
 
 if __name__ == "__main__":

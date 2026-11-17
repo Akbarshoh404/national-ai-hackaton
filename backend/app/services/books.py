@@ -377,6 +377,8 @@ def _frame(db: Session, company_id: int, since: date | None = None) -> pd.DataFr
                                      "attrs", "qty", "unit_price", "total", "counterparty", "origin"])
     if not df.empty:
         df["month"] = df["date"].map(lambda d: d.strftime("%Y-%m"))
+        for col in ("item_category", "brand", "model", "condition", "counterparty"):
+            df[col] = df[col].astype(object).where(df[col].notna(), None)
     return df
 
 

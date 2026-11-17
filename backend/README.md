@@ -29,7 +29,7 @@ and ranking is computed in code. Every LLM call has a deterministic fallback, so
                    └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-Every worker is behind an env flag (`WORKERS_TELEGRAM`, `WORKERS_EXTRACTOR`, `BOT_ENABLED`) and runs under a
+Every worker is behind an env flag (`WORKERS_TELEGRAM`, `WORKERS_EXTRACTOR`, `WORKERS_DECISIONS`, `BOT_ENABLED`) and runs under a
 supervisor that logs and restarts it — a crashing worker never takes down the API.
 
 ## Setup in 5 commands
@@ -50,6 +50,15 @@ Open http://localhost:8000/docs. Demo login: `POST /api/v1/auth/demo-login {"com
 | TechOpt Wholesale (supplier: phone, laptop) | `techopt` | `demo-techopt` |
 | Sergeli Avto (retailer: car) | `sergeli-avto` | `demo-sergeli-avto` |
 | Yunusobod Realty (realtor: house, rent) | `yunusobod-realty` | `demo-yunusobod-realty` |
+| Chilonzor Phone Market — manager user | — | `demo-chilonzor-manager` |
+| Chilonzor Phone Market — appraiser user (read-only market/stock) | — | `demo-chilonzor-appraiser` |
+| Demo Lizing Bank (lender) | `demo-bank` | `demo-demo-bank` |
+| Malika Bozori Ma'muriyati (market admin) | `bozor-admin` | `demo-bozor-admin` |
+
+Chilonzor Phone Market has 2 stores and 80 units in stock (14 overpriced, 6 older than 30 days, 8 older than 60),
+IMEIs for phones (demo TAC table), a planted-error book, an open RFQ, an incoming RFQ from a peer shop, a submitted
+loan application to Demo Lizing Bank, and a connected (mock) Didox integration. The bank holds 10 collateral items
+(one LTV breach, one on watch).
 
 Demo keys only exist when the database was seeded; `demo-login` only works with `DEMO_MODE=true`.
 
@@ -117,6 +126,23 @@ Create a bot with @BotFather and set `TG_BOT_TOKEN`. In Telegram: `/link demo-ch
 | Budget control | `PUT/GET /books/budget`, budget alerts, `GET /alerts`, `GET /alerts/stream` | **#25** |
 | AI Advisor | `POST /advisor/chat`, `GET /advisor/cashflow`, `POST /advisor/credit`, `GET /advisor/tax`, `GET /advisor/loan-readiness`, `POST /advisor/expansion`, `POST /advisor/business-plan` | **#20** |
 | Platform | `POST /auth/register`, `POST /auth/demo-login`, `GET/PATCH /companies/me`, `GET /companies`, `GET /companies/{id}`, `GET /meta`, `GET /dashboard`, `GET /health`, `/admin/*` | all |
+| **v2** Stock command center (Narxlar) | `GET /stock/units`, `GET /stock/summary`, `POST /stock/reprice`, `POST /stock/list-on-exchange`, `GET /stock/export`, `GET /books/transactions/export` | **#19, #26** |
+| **v2** Decisions queue (Bugun) | `GET /decisions`, `POST /decisions/{id}/approve`, `POST /decisions/{id}/ignore`, `/dashboard.decisions` | **#25, #26, #19** |
+| **v2** Fast inputs | `POST /input/parse`, `POST /input/voice`, `POST /input/imei`, `POST /market/price-from-link`, `POST /books/upload/preview` | **#19, #26** |
+| **v2** Copilot blocks, credit products, loan applications | `POST /advisor/chat` (blocks + chips), `POST /advisor/credit` (products, schedule, LTV), `GET /advisor/business-plan`, `GET /advisor/lenders`, `POST/GET /advisor/loan-applications` | **#20** |
+| **v2** Lender & bazaar console | `POST /lender/valuations`, `GET/POST /lender/collateral`, `GET /lender/collateral/summary`, `GET /lender/applications`, `GET /lender/applications/{id}`, `GET /lender/applications/{id}/business-plan`, `POST /lender/applications/{id}/decision`, `GET /partner/market-report` | **#20, #19** |
+| **v2** Exchange additions | `POST /exchange/quotes/{id}/counter`, `POST /exchange/quotes/{id}/respond`, `GET /exchange/deals/{id}/document`, `GET /exchange/demand` (`by_district`) | **#19** |
+| **v2** Platform | `GET/POST/PATCH /stores`, `GET/POST/DELETE /users`, `GET /activity`, `GET /integrations`, `POST /integrations/{kind}/sync` | all |
+
+### Roles
+
+| Caller | Can use |
+|---|---|
+| company key (`owner`) | everything |
+| `manager` user | everything except company settings, users and loan applications |
+| `appraiser` user | market, pricing, inventory and stock reads, input parsing |
+| `lender` / `market_admin` company | `/lender/*` (lenders), `/partner/*`, market, alerts, users, activity, integrations |
+
 
 ## Deploy to Railway
 

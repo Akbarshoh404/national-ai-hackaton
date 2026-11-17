@@ -214,8 +214,10 @@ MODEL_ALIASES: dict[str, str] = {
 
 def norm_model(model: str | None, brand: str | None = None) -> str:
     """Normalize a model name for grouping: lowercase, no brand prefix, no storage tokens."""
-    if not model:
+    if not model or not isinstance(model, str):
         return ""
+    if not isinstance(brand, str):
+        brand = None
     s = model.lower().replace("ё", "е")
     s = _STORAGE_TOKEN.sub(" ", s)
     s = re.sub(r"(?<=[a-z]{4})(?=\d)", " ", s)  # iphone13 -> iphone 13 (keeps a54, m1)

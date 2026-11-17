@@ -28,7 +28,10 @@ def cmd_seed(args: argparse.Namespace) -> None:
     if not args.reset:
         db.migrate()
     print(json.dumps(seed.run(reset=args.reset)))
-    print("demo API keys: " + ", ".join(f"demo-{s}" for s in seed.DEMO_COMPANIES))
+    from app import seed_v2
+
+    slugs = [*seed.DEMO_COMPANIES, *seed_v2.PARTNERS, *(u[1] for u in seed_v2.DEMO_USERS)]
+    print("demo API keys: " + ", ".join(f"demo-{s}" for s in slugs))
 
 
 def _require_tg() -> None:
