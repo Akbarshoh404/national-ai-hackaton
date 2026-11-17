@@ -9,7 +9,6 @@ from fastapi.responses import Response
 
 from app.deps import CompanyDep, DbDep, LangDep
 from app.errors import AppError
-from app.models import Offer
 from app.schemas.common import Category, Page
 from app.schemas.exchange import OfferOut
 from app.schemas.stock import ListOnExchangeIn, Rating, RepriceIn, RepriceOut, StockSummary, StockUnit
@@ -65,26 +64,9 @@ def stock_reprice(body: RepriceIn, db: DbDep, company: CompanyDep, lang: LangDep
 @router.post("/list-on-exchange", response_model=list[OfferOut], status_code=201)
 def stock_list_on_exchange(body: ListOnExchangeIn, db: DbDep, company: CompanyDep, lang: LangDep) -> list[OfferOut]:
     """Create `surplus` offers from (aging) units; identical units are grouped into one offer."""
-    rows = stock.units(db, company, lang, ids=body.inventory_ids)
-    missing = sorted(set(body.inventory_ids) - {r["inventory_id"] for r in rows})
-    if missing:
-        raise AppError("inventory_not_found", "Some units are not in your stock", 404, {"inventory_ids": missing})
-    groups: dict[tuple, dict] = {}
-    for r in rows:
-        price = body.unit_price_uzs or r["suggested_price_uzs"] or r["list_price_uzs"] or r["unit_cost_uzs"]
-        k = (r["category"], r["brand"], r["model"], r["condition"], str(sorted(r["attrs"].items())), price)
-        g = groups.setdefault(k, {**r, "qty": 0, "price": price})
-        g["qty"] += r["qty"]
-    offers = []
-    for g in groups.values():
-        o = Offer(company_id=company.id, kind="surplus", category=g["category"], brand=g["brand"], model=g["model"],
-                  condition=g["condition"], attrs=g["attrs"], qty=g["qty"], unit_price=round(g["price"], -3),
-                  district=company.district, note="Stock command center: surplus")
-        db.add(o)
-        offers.append(o)
-    db.flush()
+    offers = stock.list_on_exchange(db, company, body.inventory_ids, body.unit_price_uzs, lang)
     activity.log(db, company, "stock.list_on_exchange", "offer", None,
-                 f"Listed {len(rows)} units as {len(offers)} surplus offers", commit=False)
+                 f"Listed {len(body.inventory_ids)} units as {len(offers)} surplus offers", commit=False)
     db.commit()
     return [OfferOut(**exchange.offer_view(db, o, lang)) for o in offers]
 

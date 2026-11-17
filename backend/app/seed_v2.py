@@ -125,6 +125,15 @@ def run(db: Session, companies: dict[str, Company], today: date) -> dict[str, in
     didox.status = "connected"
     didox.details = {"mode": "mock", "account": "Chilonzor Phone Market (demo)"}
 
+    # an incoming RFQ for Chilonzor from a peer shop (feeds the rfq_quote decision)
+    from app.models import Rfq
+
+    peer = db.scalar(select(Company).where(Company.name == "Malika Mobile"))
+    est = pricing.estimate(db, "phone", "Galaxy A54", "new", attrs={"storage_gb": 128}, brand="Samsung")
+    db.add(Rfq(company_id=peer.id, category="phone", brand="Samsung", model="Galaxy A54", condition="new",
+               attrs={"storage_gb": 128}, qty=10, target_unit_price=round(est.fair_buy_price_uzs, -3),
+               district=peer.district, deadline=today + timedelta(days=4), note="Korobkasi bilan"))
+
     units = seed_stock(db, ch, stores, today, rng)
     return {"stock_units": units, "integrations": len(INTEGRATION_KINDS)}
 

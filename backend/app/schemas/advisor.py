@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 
 from app.schemas.alerts import AlertOut
 from app.schemas.common import Category
+from app.schemas.decisions import DecisionOut
 from app.schemas.exchange import DealOut, RfqOut
 from app.schemas.market import ListingOut, RentalYieldOut
+from app.schemas.stock import StockSummary
 
 
 class CashflowMonth(BaseModel):
@@ -192,3 +194,5 @@ class DashboardOut(BaseModel):
     open_rfqs: list[RfqOut]
     recent_deals: list[DealOut]
     cashflow: list[CashflowMonth]
+    decisions: list[DecisionOut] = Field(default_factory=list, description="Top 5 pending decisions")
+    stock: StockSummary | None = None

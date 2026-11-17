@@ -40,6 +40,10 @@ def _start_workers() -> list[asyncio.Task]:
         from app.services import extractor
 
         tasks.append(asyncio.create_task(workers.supervise("extractor", extractor.run_loop)))
+    if settings.WORKERS_DECISIONS:
+        from app.services import decisions
+
+        tasks.append(asyncio.create_task(workers.supervise("decisions", decisions.run_loop)))
     if settings.BOT_ENABLED:
         if settings.TG_BOT_TOKEN:
             from app.services import bot

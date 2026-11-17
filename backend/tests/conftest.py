@@ -13,6 +13,7 @@ os.environ.update({
     "WORKERS_TELEGRAM": "false",
     "WORKERS_EXTRACTOR": "false",
     "BOT_ENABLED": "false",
+    "WORKERS_DECISIONS": "false",
     "GEMINI_API_KEY": "",
     "TG_BOT_TOKEN": "",
     "ADMIN_KEY": "test-admin",
@@ -74,3 +75,24 @@ def realty() -> dict[str, str]:
 @pytest.fixture(scope="session")
 def admin() -> dict[str, str]:
     return {"X-Admin-Key": "test-admin"}
+
+
+def reseed() -> None:
+    """Rebuild the demo DB from scratch and clear in-process caches (for modules that mutate seed data)."""
+    from app import seed
+    from app.services import books, decisions, pricing
+
+    db.drop_all()
+    db.create_all()
+    seed.run(reset=False)
+    books._audit_cache.clear()
+    decisions._built_on.clear()
+    pricing.invalidate()
+
+
+@pytest.fixture(scope="module")
+def fresh_seed(_database):
+    """Module-scoped fresh seed: use in modules that approve decisions or otherwise reshape seed data."""
+    reseed()
+    yield
+    reseed()

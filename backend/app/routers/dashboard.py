@@ -10,11 +10,12 @@ from sqlalchemy import or_, select
 from app.deps import CompanyDep, DbDep, LangDep
 from app.models import Alert, Deal, Rfq
 from app.routers.alerts import alert_out
+from app.routers.decisions import decision_out
 from app.routers.exchange import deal_out, rfq_out
 from app.routers.market import listing_out
 from app.schemas.advisor import DashboardKpis, DashboardOut
 from app.services import alerts as alert_svc
-from app.services import books, finance, market
+from app.services import books, decisions, finance, market, stock
 
 router = APIRouter(tags=["dashboard"])
 
@@ -23,6 +24,8 @@ router = APIRouter(tags=["dashboard"])
 def dashboard_get(db: DbDep, company: CompanyDep, lang: LangDep) -> DashboardOut:
     """KPIs, top alerts, sourcing deals, open RFQs, recent deals and a 6-month cash-flow series."""
     month = date.today().strftime("%Y-%m")
+    decisions.ensure_built(db, company)
+    pending = decisions.pending(db, company)
     cf = finance.cashflow(db, company.id, 6)
     cur = cf[-1]
     flags = books.audit_flags(db, company.id, lang)
@@ -54,4 +57,6 @@ def dashboard_get(db: DbDep, company: CompanyDep, lang: LangDep) -> DashboardOut
         open_rfqs=[rfq_out(db, r, company) for r in rfqs],
         recent_deals=[deal_out(db, d, company) for d in recent],
         cashflow=cf,
+        decisions=[decision_out(d, lang) for d in pending[:5]],
+        stock=stock.summary(stock.units(db, company, lang)),
     )

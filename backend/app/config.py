@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     WORKERS_TELEGRAM: bool = True
     WORKERS_EXTRACTOR: bool = True
     BOT_ENABLED: bool = True
+    WORKERS_DECISIONS: bool = True
 
     # --- telegram -------------------------------------------------------------
     TG_API_ID: int | None = None

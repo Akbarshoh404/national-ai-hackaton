@@ -139,3 +139,28 @@ Choices made while building, where the spec left room. Grouped by area.
   `Ид;Наименование;Артикул;ЕдиницаИзмерения;Количество;ЦенаЗакупки;ЦенаПродажи;Склад;Характеристики`.
   Transactions: `Дата;ВидОперации;Статья;Контрагент;Номенклатура;Количество;Цена;Сумма;Комментарий`.
   This is a pragmatic import layout for 1C "Загрузка данных из табличного документа", not full CommerceML XML.
+
+## Decisions queue
+- **One card per type** (at most 8, sorted by amount): `reprice` covers every overpriced, non-aging unit in a
+  single card ("14 units are priced above market"). For the audit-based types, the flag with the largest amount
+  at risk becomes the card. Keys: `reprice`, `slow_stock`, `dup:<tx ids>`, `typo:<tx>`, `overpay:<tx>`,
+  `budget:<month>:<category>`, `deal:<listing>`, `rfq:<rfq>`.
+- **Idempotent build.** A pending card with the same (type, key) is refreshed in place. Pending cards whose
+  condition disappeared are set to `expired`. A card approved or ignored today isn't recreated the same day.
+- Built on the first `GET /decisions` (or `/dashboard`) of the day per company (tracked in process memory),
+  on `?refresh=true`, and every 10 minutes by the `decisions` worker (`WORKERS_DECISIONS`).
+- **Approve runs exactly once.** A conditional `UPDATE … WHERE status='pending'` claims the card, and the action
+  runs in the same transaction. If the action fails, everything rolls back and the card stays pending.
+  A second approve or ignore returns 409 `decision_resolved`.
+- **Approve actions:**
+  - `reprice` re-checks the units at approve time and only reprices those still overpriced.
+  - `slow_stock` creates surplus offers for the units still in stock.
+  - `duplicate_invoice` deletes the extra rows (never exchange-origin ones).
+  - `typo_amount` sets the total to /10 and notes the old value.
+  - `overpayment` creates an `audit` alert and notes the transaction; no money moves.
+  - `deal_to_buy` sets `payload.watch = true`.
+  - `budget_limit` and `rfq_quote` are acknowledgements. The rfq card's action points at the quote endpoint for
+    the frontend form.
+- The seed adds one open RFQ from a peer shop (Malika Mobile, Galaxy A54 × 10), so Chilonzor gets an `rfq_quote`
+  card.
+- Tests that change seed data use a module-scoped `fresh_seed` fixture, which reseeds and clears in-process caches.

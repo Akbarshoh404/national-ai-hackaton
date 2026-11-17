@@ -20,7 +20,7 @@ from app.catalog import norm_model
 from app.config import DEFAULT_DAYS_TO_SELL, settings
 from app.errors import AppError
 from app.i18n import fmt_uzs, register, t
-from app.models import Company, InventoryItem
+from app.models import Company, InventoryItem, Offer
 from app.services import pricing
 
 register({
@@ -204,6 +204,27 @@ def reprice(db: Session, company: Company, prices: dict[int, float]) -> list[int
     for iid, price in prices.items():
         rows[iid].list_price_uzs = round(price, -3) if price >= 1000 else price
     return list(rows)
+
+
+def list_on_exchange(db: Session, company: Company, ids: list[int], unit_price: float | None,
+                     lang: str) -> list[Offer]:
+    """Create `surplus` offers from units; identical units (same price) are grouped. No commit."""
+    rows = units(db, company, lang, ids=ids)
+    missing = sorted(set(ids) - {r["inventory_id"] for r in rows})
+    if missing:
+        raise AppError("inventory_not_found", "Some units are not in your stock", 404, {"inventory_ids": missing})
+    groups: dict[tuple, dict[str, Any]] = {}
+    for r in rows:
+        price = unit_price or r["suggested_price_uzs"] or r["list_price_uzs"] or r["unit_cost_uzs"]
+        k = (r["category"], r["brand"], r["model"], r["condition"], json.dumps(r["attrs"], sort_keys=True), price)
+        g = groups.setdefault(k, {**r, "qty": 0, "price": price})
+        g["qty"] += r["qty"]
+    offers = [Offer(company_id=company.id, kind="surplus", category=g["category"], brand=g["brand"], model=g["model"],
+                    condition=g["condition"], attrs=g["attrs"], qty=g["qty"], unit_price=round(g["price"], -3),
+                    district=company.district, note="Stock command center: surplus") for g in groups.values()]
+    db.add_all(offers)
+    db.flush()
+    return offers
 
 
 # --------------------------------------------------------------------------- #
