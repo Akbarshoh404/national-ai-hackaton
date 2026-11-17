@@ -364,8 +364,8 @@ def seed_chilonzor(db: Session, c: Company, today: date) -> None:
             txs.append(_tx(c, d, "expense", "stock_purchase", unit * qty, rng.choice(SUPPLIERS), qty=qty,
                            unit=unit, item=g))
             sale_unit = round(fairs[g["model"]].fair_price_uzs * rng.uniform(0.98, 1.02), -3)
-            txs.append(_tx(c, min(d + timedelta(days=3), today), "income", "sale", sale_unit * qty, "Chakana xaridorlar",
-                           qty=qty, unit=sale_unit, item=g))
+            txs.append(_tx(c, min(d + timedelta(days=3), today), "income", "sale", sale_unit * qty,
+                           "Chakana xaridorlar", qty=qty, unit=sale_unit, item=g))
         txs.append(_tx(c, _day(ms, 20, today), "income", "other_income", round(rng.uniform(10e6, 13e6), -3),
                        "Aksessuar va servis"))
         if back < 5:
@@ -535,9 +535,9 @@ def seed_companies(db: Session, today: date) -> dict[str, Company]:
               deadline=today + timedelta(days=5), note="Kafolat bilan, box bo'lsa yaxshi")
     db.add(rfq)
     db.flush()
-    db.add(Quote(rfq_id=rfq.id, supplier_id=sup[0].id, unit_price=round(est.fair_buy_price_uzs * 1.02, -3), qty=10,
+    db.add(Quote(rfq_id=rfq.id, supplier_id=sup[0].id, unit_price=round(est.fair_buy_price_uzs * 0.99, -3), qty=10,
                  delivery_days=3, note="Hammasi box bilan"))
-    db.add(Quote(rfq_id=rfq.id, supplier_id=sup[1].id, unit_price=round(est.fair_buy_price_uzs * 0.97, -3), qty=6,
+    db.add(Quote(rfq_id=rfq.id, supplier_id=sup[1].id, unit_price=round(est.fair_buy_price_uzs * 1.04, -3), qty=6,
                  delivery_days=7, note="6 dona bor"))
     return cs
 

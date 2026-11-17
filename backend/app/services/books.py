@@ -276,13 +276,13 @@ def create_transactions(db: Session, company: Company, rows: list[dict[str, Any]
     return txs
 
 
-INVOICE_PROMPT = """You read a photo of a purchase invoice / receipt from an Uzbek business (Uzbek or Russian).
+INVOICE_PROMPT = ("""You read a photo of a purchase invoice / receipt from an Uzbek business (Uzbek or Russian).
 Return JSON: {"date": "YYYY-MM-DD" or null, "counterparty": seller name or null, "items": [
  {"description": str, "item_category": "phone"|"laptop"|"car"|null, "brand": str|null, "model": str|null,
   "condition": "new"|"A"|"B"|"C"|null, "qty": number, "unit_price": number|null, "total": number,
-  "category": one of %s}]}
+  "category": one of CATEGORIES}]}
 Amounts are in UZS unless a $ sign is shown (then add "currency": "USD" to the item). Copy numbers exactly as
-printed. Unknown values are null. Never invent items.""" % json.dumps(EXPENSE_CATEGORIES)
+printed. Unknown values are null. Never invent items.""").replace("CATEGORIES", json.dumps(EXPENSE_CATEGORIES))
 
 
 def extract_invoice(image: bytes, mime_type: str) -> list[dict[str, Any]]:
