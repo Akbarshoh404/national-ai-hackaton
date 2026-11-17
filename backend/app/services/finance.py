@@ -23,11 +23,11 @@ from app.catalog import (
     ROLE_LABELS,
     label,
 )
-from app.config import DEALER_MARGIN, RENT_OPEX_RATIO, STOCK_TURNS_PER_MONTH, settings
+from app.config import CREDIT_PRODUCTS, DEALER_MARGIN, RENT_OPEX_RATIO, STOCK_TURNS_PER_MONTH, settings
 from app.errors import AppError
-from app.i18n import detect_lang, fmt_uzs, register, t
+from app.i18n import fmt_uzs, register, t
 from app.models import Company, Listing, Transaction
-from app.services import books, exchange, fx, llm, market, pricing
+from app.services import books, exchange, llm, market, pricing
 
 register({
     "lr.history": {"uz": "Hisob tarixi", "ru": "История учёта", "en": "Data history"},
@@ -151,10 +151,42 @@ def max_principal(payment: float, months: int, annual_rate_pct: float) -> float:
     return payment * (1 - (1 + r) ** -months) / r
 
 
-def credit(db: Session, company: Company, principal: float, months: int, rate: float | None,
-           lang: str) -> dict[str, Any]:
-    rate = settings.DEFAULT_LOAN_RATE if rate is None else rate
+def amortization(principal: float, months: int, annual_rate_pct: float) -> list[dict[str, float]]:
+    """Full annuity schedule. The last row absorbs rounding so Σ principal = principal exactly."""
+    pay = annuity_payment(principal, months, annual_rate_pct)
+    r = annual_rate_pct / 100 / 12
+    balance, rows = principal, []
+    for m in range(1, months + 1):
+        interest = round(balance * r, 2)
+        princ = round(pay - interest, 2) if m < months else round(balance, 2)
+        payment = round(princ + interest, 2)
+        balance = round(balance - princ, 2)
+        rows.append({"month": m, "payment_uzs": payment, "principal_uzs": princ, "interest_uzs": interest,
+                     "balance_uzs": max(balance, 0.0)})
+    return rows
+
+
+def credit(db: Session, company: Company, principal: float | None, months: int, rate: float | None,
+           lang: str, product: str = "business_loan", down_payment_pct: float | None = None,
+           asset_value: float | None = None) -> dict[str, Any]:
+    """Credit calculator for a product: annuity, schedule, affordability, max loan and LTV (asset loans)."""
+    spec = CREDIT_PRODUCTS[product]
+    if months > spec["max_months"]:
+        raise AppError("term_too_long", f"{product} allows at most {int(spec['max_months'])} months", 422,
+                       {"max_months": int(spec["max_months"])})
+    if rate is None:
+        rate = settings.DEFAULT_LOAN_RATE if product == "business_loan" else spec["rate_pct"]
+    down_pct = spec["down_payment_pct"] if down_payment_pct is None else down_payment_pct
+    down = ltv = None
+    if asset_value:
+        down = asset_value * down_pct
+        if principal is None:
+            principal = asset_value - down
+        ltv = round(principal / asset_value, 4)
+    if principal is None or principal <= 0:
+        raise AppError("principal_required", "Give principal_uzs, or asset_value_uzs for asset loans", 422)
     pay = annuity_payment(principal, months, rate)
+    schedule = amortization(principal, months, rate)
     net = avg_net(db, company.id)
     capacity = max(net, 0.0) * settings.MAX_DEBT_SERVICE_RATIO
     affordable = net > 0 and pay <= capacity
@@ -174,7 +206,11 @@ def credit(db: Session, company: Company, principal: float, months: int, rate: f
             "max_debt_service_ratio_pct": settings.MAX_DEBT_SERVICE_RATIO * 100, "affordable": affordable,
             "max_loan_uzs": round(max_loan), "verdict": verdict,
             "max_loan_by_term": {str(n): round(max_principal(capacity, n, rate)) for n in (12, 24, 36)},
-            "rate_note": "Default rate from DEFAULT_LOAN_RATE — VERIFY with partner banks"}
+            "rate_note": "Placeholder product rate — VERIFY with partner banks",
+            "product": product, "down_payment_pct": down_pct if asset_value else None,
+            "down_payment_uzs": round(down) if down is not None else None,
+            "asset_value_uzs": round(asset_value) if asset_value else None, "ltv": ltv,
+            "schedule": schedule}
 
 
 # --------------------------------------------------------------------------- #
@@ -546,142 +582,3 @@ def render_pdf(html_doc: str) -> bytes | None:
     except Exception:
         return None
     return HTML(string=html_doc).write_pdf()
-
-
-# --------------------------------------------------------------------------- #
-# Advisor chat                                                                  #
-# --------------------------------------------------------------------------- #
-
-def chat_context(db: Session, company: Company, lang: str) -> dict[str, Any]:
-    """All facts the advisor may use, computed in Python."""
-    flags = books.audit_flags(db, company.id, lang)
-    budget = books.budget_status(db, company, date.today().strftime("%Y-%m"), lang, create_alerts=False)
-    snapshot = []
-    for cat in company.categories or []:
-        for mdl in market.models(db, cat, None, 3):
-            typ = _typical(db, cat, mdl["model_norm"]) if cat in GOODS_CATEGORIES else None
-            if typ:
-                est = pricing.try_estimate(db, category=cat, model=typ["model"], brand=typ["brand"],
-                                           condition=typ["condition"], attrs=typ["attrs"], lang=lang)
-                if est:
-                    snapshot.append({"category": cat, "model": mdl["model"], "fair_price_uzs": est.fair_price_uzs,
-                                     "fair_buy_price_uzs": est.fair_buy_price_uzs, "listings": mdl["listings"]})
-    loan_rate = settings.DEFAULT_LOAN_RATE
-    capacity = max(avg_net(db, company.id), 0) * settings.MAX_DEBT_SERVICE_RATIO
-    return {
-        "company": {"name": company.name, "role": company.role, "categories": company.categories,
-                    "district": company.district, "tax_regime": company.tax_regime},
-        "cashflow": cashflow(db, company.id, 6),
-        "budget": {"month": budget["month"], "used_pct": budget["used_pct"],
-                   "problems": [{"category": i["category"], "status": i["status"], "planned_uzs": i["planned_uzs"],
-                                 "fact_uzs": i["fact_uzs"], "forecast_uzs": i["forecast_uzs"]}
-                                for i in budget["items"] if i["status"] in ("over", "at_risk")]},
-        "audit": {**books.audit_summary(flags), "top_issues": [f["message"] for f in flags[:5]]},
-        "loan_readiness": loan_readiness(db, company, lang, flags),
-        "max_affordable_loan_uzs": {str(n): round(max_principal(capacity, n, loan_rate)) for n in (12, 24, 36)},
-        "loan_rate_pct": loan_rate,
-        "tax": tax(db, company, lang),
-        "market": snapshot, "fx_usd_uzs": fx.rate(),
-    }
-
-
-_INTENTS = [
-    ("credit", ("kredit", "кредит", "loan", "qarz", "займ", "bank", "банк")),
-    ("tax", ("soliq", "налог", "tax", "qqs", "ндс", "vat")),
-    ("budget", ("byudjet", "бюджет", "budget", "reja", "план", "limit")),
-    ("audit", ("audit", "xato", "ошиб", "error", "dublikat", "дублик", "duplicate", "аудит")),
-    ("market", ("narx", "цена", "price", "bozor", "рынок", "market", "qancha turadi", "сколько стоит")),
-    ("cashflow", ("foyda", "прибыл", "profit", "daromad", "доход", "income", "cash", "pul", "оборот", "xarajat",
-                  "расход")),
-]
-
-
-def _fallback_answer(ctx: dict[str, Any], question: str, lang: str) -> tuple[str, list[str]]:
-    q = question.lower()
-    intents = [name for name, kws in _INTENTS if any(k in q for k in kws)] or ["overview"]
-    parts, used = [], []
-    f = lambda v: fmt_uzs(v, lang)  # noqa: E731
-    for intent in intents[:2]:
-        if intent == "credit":
-            lr, ml = ctx["loan_readiness"], ctx["max_affordable_loan_uzs"]
-            parts.append({"uz": f"Kreditga tayyorlik: {lr['score']}/100 ({lr['grade']}). {ctx['loan_rate_pct']}% "
-                                f"stavkada maksimal kredit: 12 oy — {f(ml['12'])}, 24 oy — {f(ml['24'])}, "
-                                f"36 oy — {f(ml['36'])}.",
-                          "ru": f"Готовность к кредиту: {lr['score']}/100 ({lr['grade']}). Макс. кредит при "
-                                f"{ctx['loan_rate_pct']}%: 12 мес — {f(ml['12'])}, 24 мес — {f(ml['24'])}, "
-                                f"36 мес — {f(ml['36'])}.",
-                          "en": f"Loan readiness: {lr['score']}/100 ({lr['grade']}). Max affordable loan at "
-                                f"{ctx['loan_rate_pct']}%: 12 mo — {f(ml['12'])}, 24 mo — {f(ml['24'])}, "
-                                f"36 mo — {f(ml['36'])}."}[lang])
-            if lr["how_to_improve"]:
-                parts.append(lr["how_to_improve"][0])
-            used += ["loan_readiness", "max_affordable_loan_uzs"]
-        elif intent == "tax":
-            tx = ctx["tax"]
-            parts.append(f"{tx['explanation']} ({t('regime.turnover', lang)}: {f(tx['turnover_regime']['tax_uzs'])}; "
-                         f"{t('regime.vat', lang)}: {f(tx['vat_regime']['total_uzs'])}). {tx['disclaimer']}")
-            used.append("tax")
-        elif intent == "budget":
-            b = ctx["budget"]
-            probs = "; ".join(f"{p['category']} ({p['status']}: {f(p['fact_uzs'])} / {f(p['planned_uzs'])})"
-                              for p in b["problems"]) or "—"
-            parts.append({"uz": f"{b['month']} byudjeti {b['used_pct'] or 0}% ishlatilgan. Muammolar: {probs}.",
-                          "ru": f"Бюджет {b['month']} использован на {b['used_pct'] or 0}%. Проблемы: {probs}.",
-                          "en": f"Budget for {b['month']} is {b['used_pct'] or 0}% used. Issues: {probs}."}[lang])
-            used.append("budget")
-        elif intent == "audit":
-            a = ctx["audit"]
-            risk = f(a["amount_at_risk_uzs"])
-            parts.append({"uz": f"Auditor {a['issues']} ta muammo topdi, xavf ostidagi summa {risk}.",
-                          "ru": f"Аудитор нашёл {a['issues']} проблем, сумма под риском {risk}.",
-                          "en": f"The auditor found {a['issues']} issues with {risk} at risk."
-                          }[lang] + (" " + a["top_issues"][0] if a["top_issues"] else ""))
-            used.append("audit")
-        elif intent == "market":
-            items = "; ".join(f"{s['model']}: {f(s['fair_price_uzs'])} (xarid {f(s['fair_buy_price_uzs'])})"
-                              if lang == "uz" else f"{s['model']}: {f(s['fair_price_uzs'])} "
-                              f"({'закупка' if lang == 'ru' else 'buy'} {f(s['fair_buy_price_uzs'])})"
-                              for s in ctx["market"][:4]) or "—"
-            parts.append({"uz": "Bozor narxlari: ", "ru": "Рыночные цены: ", "en": "Market prices: "}[lang] + items)
-            used.append("market")
-        elif intent in ("cashflow", "overview"):
-            last = [r for r in ctx["cashflow"] if not r["partial"]][-1:] or ctx["cashflow"][-1:]
-            r = last[0]
-            parts.append({"uz": f"{r['month']}: tushum {f(r['income_uzs'])}, xarajat {f(r['expense_uzs'])}, "
-                                f"sof {f(r['net_uzs'])}.",
-                          "ru": f"{r['month']}: доходы {f(r['income_uzs'])}, расходы {f(r['expense_uzs'])}, "
-                                f"чистыми {f(r['net_uzs'])}.",
-                          "en": f"{r['month']}: income {f(r['income_uzs'])}, expenses {f(r['expense_uzs'])}, "
-                                f"net {f(r['net_uzs'])}."}[lang])
-            used.append("cashflow")
-            if intent == "overview":
-                lr = ctx["loan_readiness"]
-                n = ctx["audit"]["issues"]
-                parts.append({"uz": f"Kreditga tayyorlik {lr['score']}/100, audit muammolari: {n}.",
-                              "ru": f"Готовность к кредиту {lr['score']}/100, проблем аудита: {n}.",
-                              "en": f"Loan readiness {lr['score']}/100, audit issues: {n}."}[lang])
-                used += ["loan_readiness", "audit"]
-    return " ".join(parts), sorted(set(used))
-
-
-def chat(db: Session, company: Company, question: str, history: list[dict[str, str]],
-         header_lang: str) -> dict[str, Any]:
-    """Answer from the company's own numbers, in the user's language."""
-    lang = detect_lang(question, header_lang)
-    ctx = chat_context(db, company, lang)
-    fallback, used = _fallback_answer(ctx, question, lang)
-    if not llm.available():
-        return {"answer": fallback, "used_data": used, "language": lang, "source": "rules"}
-    lang_name = {"uz": "Uzbek (Latin script)", "ru": "Russian", "en": "English"}[lang]
-    system = ("You are BozorPilot, a financial advisor for a small Uzbek business. Answer in "
-              f"{lang_name}, in 2-6 sentences. Use ONLY numbers that appear in the CONTEXT JSON (amounts are UZS); "
-              "never compute or invent new numbers. If the context lacks the answer, say so and suggest which "
-              "BozorPilot screen to use. Return JSON {\"answer\": str, \"used_data\": [top-level context keys]}.")
-    hist = "\n".join(f"{h.get('role', 'user')}: {h.get('content', '')}" for h in history[-6:])
-    prompt = (f"CONTEXT:\n{json.dumps(ctx, ensure_ascii=False, default=str)}\n\nHISTORY:\n{hist}\n\n"
-              f"QUESTION: {question}")
-    out = llm.generate_json(prompt, system=system, temperature=0.2, timeout=settings.LLM_TIMEOUT_S)
-    if isinstance(out, dict) and isinstance(out.get("answer"), str) and out["answer"].strip():
-        keys = [k for k in out.get("used_data", []) if isinstance(k, str) and k in ctx]
-        return {"answer": out["answer"].strip(), "used_data": keys or used, "language": lang, "source": "llm"}
-    return {"answer": fallback, "used_data": used, "language": lang, "source": "rules"}

@@ -164,3 +164,29 @@ Choices made while building, where the spec left room. Grouped by area.
 - The seed adds one open RFQ from a peer shop (Malika Mobile, Galaxy A54 × 10), so Chilonzor gets an `rfq_quote`
   card.
 - Tests that change seed data use a module-scoped `fresh_seed` fixture, which reseeds and clears in-process caches.
+
+## Copilot and credit products
+- **`POST /advisor/chat` now runs `services/copilot.py`.** The v1 paragraph-style chat code was removed. The old
+  response fields (`answer`, `used_data`, `language`, `source`) are kept, and `used_data` still contains the v1
+  keys (e.g. `max_affordable_loan_uzs`, `tax`, `budget`) so v1 clients keep working.
+- **Intent order** (first match wins): business_plan → loan_readiness → expansion → credit → tax → budget → audit
+  → demand → stock → price → cashflow. When no keyword matches, the order is: selected inventory → `stock`,
+  selected transactions → `audit`, screen default (stock/books/budget/exchange), then the LLM (only an intent
+  name from a fixed list; anything else is ignored), then `overview`.
+- `price` with selected inventory rows becomes `stock`, so "why is this one overpriced?" answers about those
+  rows. Ids that don't belong to the caller are dropped from the context.
+- **Answer:** each intent has a 2-sentence template. If an LLM is configured, it may rephrase the template
+  ("keep every number exactly"). The output is cut to 2 sentences. Blocks and chips are never touched by the LLM
+  (there is a test for this).
+- **Chips** are `{label, action:{endpoint, method, body}}` pointing at real endpoints (tested against
+  OpenAPI). The `file` block for business plans needs a linkable URL, so `GET /advisor/business-plan` was added
+  (same plan as POST, via query params).
+- `parse_money` reads "100 mln", "1.5 mlrd", "250 ming" in questions. Copilot credit terms are clamped to 36
+  months; the credit endpoint itself allows each product's max.
+- **Credit products** (`CREDIT_PRODUCTS` in config, all rates are placeholders — VERIFY with partner banks):
+  business_loan 24% / 36 mo / 0% down (still honours `DEFAULT_LOAN_RATE`); auto_loan (dealer stock) 26% / 60 mo
+  / 20%; mortgage 18% / 240 mo / 30%; leasing 28% / 36 mo / 20%.
+  - With `asset_value_uzs`: principal defaults to asset × (1 − down), and LTV = principal / asset.
+  - Terms above the product maximum return 422 `term_too_long`.
+- **Schedule:** the full annuity schedule is rounded to 0.01. The last row absorbs rounding, so Σ principal equals
+  the principal exactly and Σ payment = principal + Σ interest.

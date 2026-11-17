@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.alerts import AlertOut
+from app.schemas.blocks import Block, Chip
 from app.schemas.common import Category
 from app.schemas.decisions import DecisionOut
 from app.schemas.exchange import DealOut, RfqOut
@@ -28,10 +29,24 @@ class CashflowOut(BaseModel):
     avg_monthly_net_uzs: float = Field(description="Average over the last 3 complete months")
 
 
+CreditProduct = Literal["business_loan", "auto_loan", "mortgage", "leasing"]
+
+
 class CreditIn(BaseModel):
-    principal_uzs: float = Field(gt=0)
-    months: int = Field(ge=1, le=120)
-    annual_rate_pct: float | None = Field(None, ge=0, le=100)
+    principal_uzs: float | None = Field(None, gt=0, description="Required unless asset_value_uzs is given")
+    months: int = Field(ge=1, le=360)
+    annual_rate_pct: float | None = Field(None, ge=0, le=100, description="Default: the product rate")
+    product: CreditProduct = "business_loan"
+    down_payment_pct: float | None = Field(None, ge=0, lt=1, description="Asset loans (mortgage, auto_loan)")
+    asset_value_uzs: float | None = Field(None, gt=0, description="Asset loans: apartment / car stock value")
+
+
+class ScheduleRow(BaseModel):
+    month: int
+    payment_uzs: float
+    principal_uzs: float
+    interest_uzs: float
+    balance_uzs: float
 
 
 class CreditOut(BaseModel):
@@ -49,6 +64,12 @@ class CreditOut(BaseModel):
     max_loan_by_term: dict[str, float]
     verdict: str
     rate_note: str
+    product: str = "business_loan"
+    down_payment_pct: float | None = None
+    down_payment_uzs: float | None = None
+    asset_value_uzs: float | None = None
+    ltv: float | None = Field(None, description="Loan-to-value for asset loans")
+    schedule: list[ScheduleRow] = []
 
 
 class TurnoverRegime(BaseModel):
@@ -162,16 +183,28 @@ class ChatTurn(BaseModel):
     content: str
 
 
+class ChatContext(BaseModel):
+    screen: Literal["stock", "books", "budget", "exchange", "advisor"] | None = None
+    inventory_ids: list[int] | None = None
+    transaction_ids: list[int] | None = None
+    rfq_id: int | None = None
+
+
 class ChatIn(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[ChatTurn] = Field(default_factory=list)
+    context: ChatContext | None = None
 
 
 class ChatOut(BaseModel):
-    answer: str
+    answer: str = Field(description="At most 2 sentences")
     used_data: list[str] = Field(description="Context sections the answer is based on")
     language: Literal["uz", "ru", "en"]
     source: Literal["llm", "rules"]
+    intent: str = "overview"
+    intent_source: Literal["rules", "context", "llm", "default"] = "rules"
+    blocks: list[Block] = Field(default_factory=list, description="Typed answer blocks built by Python tools")
+    chips: list[Chip] = Field(default_factory=list, description="2–3 next steps the frontend can run")
 
 
 class DashboardKpis(BaseModel):
