@@ -35,7 +35,7 @@ from app.services import exchange
 router = APIRouter(prefix="/exchange", tags=["B2B exchange (#19)"])
 
 
-def _rfq_out(db: DbDep, rfq: Rfq, me: Company) -> RfqOut:
+def rfq_out(db: DbDep, rfq: Rfq, me: Company) -> RfqOut:
     out = RfqOut.model_validate(rfq)
     out.company_name = db.get(Company, rfq.company_id).name
     out.quotes_count = db.scalar(select(func.count(Quote.id)).where(Quote.rfq_id == rfq.id)) or 0
@@ -43,7 +43,7 @@ def _rfq_out(db: DbDep, rfq: Rfq, me: Company) -> RfqOut:
     return out
 
 
-def _deal_out(db: DbDep, d: Deal, me: Company) -> DealOut:
+def deal_out(db: DbDep, d: Deal, me: Company) -> DealOut:
     out = DealOut.model_validate(d)
     out.buyer_name = db.get(Company, d.buyer_id).name
     out.seller_name = db.get(Company, d.seller_id).name
@@ -57,7 +57,7 @@ def exchange_create_rfq(body: RfqIn, db: DbDep, company: CompanyDep, lang: LangD
     if body.category in ("phone", "laptop", "car") and not body.model:
         raise AppError("model_required", "model is required for this category", 422)
     rfq, est, notified = exchange.create_rfq(db, company, body.model_dump(), lang)
-    return RfqCreated(rfq=_rfq_out(db, rfq, company), market=estimate_out(est, lang=lang) if est else None,
+    return RfqCreated(rfq=rfq_out(db, rfq, company), market=estimate_out(est, lang=lang) if est else None,
                       notified_companies=notified)
 
 
@@ -79,12 +79,12 @@ def exchange_list_rfqs(db: DbDep, company: CompanyDep, scope: Literal["mine", "i
         q = q.where(Rfq.id < int(cursor))
     rows = list(db.scalars(q.order_by(Rfq.id.desc()).limit(limit + 1)))
     nxt = str(rows[limit - 1].id) if len(rows) > limit else None
-    return Page(items=[_rfq_out(db, r, company) for r in rows[:limit]], next_cursor=nxt, total=total)
+    return Page(items=[rfq_out(db, r, company) for r in rows[:limit]], next_cursor=nxt, total=total)
 
 
 @router.get("/rfqs/{rfq_id}", response_model=RfqOut)
 def exchange_get_rfq(rfq_id: int, db: DbDep, company: CompanyDep) -> RfqOut:
-    return _rfq_out(db, exchange.get_rfq_visible(db, company, rfq_id), company)
+    return rfq_out(db, exchange.get_rfq_visible(db, company, rfq_id), company)
 
 
 @router.post("/rfqs/{rfq_id}/quotes", response_model=QuoteOut, status_code=201)
@@ -102,7 +102,7 @@ def exchange_ranked_quotes(rfq_id: int, db: DbDep, company: CompanyDep, lang: La
 @router.post("/quotes/{quote_id}/accept", response_model=DealOut)
 def exchange_accept_quote(quote_id: int, db: DbDep, company: CompanyDep) -> DealOut:
     """Accept a quote → deal booked in both companies' books, inventory moved."""
-    return _deal_out(db, exchange.accept_quote(db, company, quote_id), company)
+    return deal_out(db, exchange.accept_quote(db, company, quote_id), company)
 
 
 @router.get("/rfqs/{rfq_id}/matches", response_model=list[OfferMatch])
@@ -164,7 +164,7 @@ def exchange_withdraw_offer(offer_id: int, db: DbDep, company: CompanyDep) -> Ok
 @router.post("/offers/{offer_id}/buy", response_model=DealOut)
 def exchange_buy_offer(offer_id: int, body: BuyIn, db: DbDep, company: CompanyDep) -> DealOut:
     """Buy from an offer → deal booked like an accepted quote."""
-    return _deal_out(db, exchange.buy_offer(db, company, offer_id, body.qty), company)
+    return deal_out(db, exchange.buy_offer(db, company, offer_id, body.qty), company)
 
 
 @router.get("/deals", response_model=Page[DealOut])
@@ -176,7 +176,7 @@ def exchange_list_deals(db: DbDep, company: CompanyDep, cursor: str | None = Non
         q = q.where(Deal.id < int(cursor))
     rows = list(db.scalars(q.order_by(Deal.id.desc()).limit(limit + 1)))
     nxt = str(rows[limit - 1].id) if len(rows) > limit else None
-    return Page(items=[_deal_out(db, d, company) for d in rows[:limit]], next_cursor=nxt, total=total)
+    return Page(items=[deal_out(db, d, company) for d in rows[:limit]], next_cursor=nxt, total=total)
 
 
 @router.post("/deals/{deal_id}/rate", response_model=RatingOut, status_code=201)
