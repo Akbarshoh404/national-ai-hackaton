@@ -117,3 +117,25 @@ Choices made while building, where the spec left room. Grouped by area.
 - Partner companies may register without categories; all other roles still need at least one.
 - The demo lender is **"Demo Lizing Bank"** (slug `demo-bank`): "Hamkor" is a real Uzbek bank brand.
 - Every company gets a default store ("Asosiy do'kon") on register and in the seed.
+
+## Stock command center
+- `/stock/units` returns one row per inventory row. The v2 seed stores phones and laptops as single units
+  (qty 1, each with its own IMEI); deal stock arrives as one row per deal, in the buyer's first (main) store.
+- **Rating band tolerance 1%:** overpriced means list > p75 × 1.01, underpriced means list < p25 × 0.99. Small
+  skewed samples can have median = p75, and prices are rounded to 1,000 so'm, so without the tolerance a unit
+  priced exactly at market would show as "overpriced".
+- A unit without `list_price_uzs` is rated `no_data`, with the reason "no list price set" and the fair price as
+  the suggestion.
+- **Suggested price precedence:** aging (> SLOW_STOCK_DAYS) → p25 (a loss vs cost is shown in `reasons`, not
+  blocked) → overpriced → median → underpriced → max(median, cost × 1.03) → otherwise keep.
+- **Margin at risk** = Σ (list − suggested) over overpriced units that are not already aging, plus the cost of
+  aging units. A unit is never counted twice.
+- `expected_days_to_sell` uses the company's sold units (`inventory.status = sold` with `sold_at`, set FIFO by
+  deals) when there are ≥ 5 in the category; otherwise the config defaults (phone 21, laptop 30, car 45, house 120,
+  rent 30). Then × 1.3 when overpriced, × 0.8 when underpriced.
+- `list-on-exchange` groups identical units (same model, condition, attributes and price) into one `surplus`
+  offer.
+- **1C export format:** semicolon-separated UTF-8 CSV with a BOM and CommerceML-style Russian headers. Stock:
+  `Ид;Наименование;Артикул;ЕдиницаИзмерения;Количество;ЦенаЗакупки;ЦенаПродажи;Склад;Характеристики`.
+  Transactions: `Дата;ВидОперации;Статья;Контрагент;Номенклатура;Количество;Цена;Сумма;Комментарий`.
+  This is a pragmatic import layout for 1C "Загрузка данных из табличного документа", not full CommerceML XML.

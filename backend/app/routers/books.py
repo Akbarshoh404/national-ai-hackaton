@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, File, Query, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import func, select
 
 from app.deps import CompanyDep, DbDep, LangDep
@@ -27,7 +28,7 @@ from app.schemas.books import (
     UploadResult,
 )
 from app.schemas.common import OkResponse, Page
-from app.services import activity, books
+from app.services import activity, books, stock
 
 router = APIRouter(prefix="/books", tags=["books (#25, #26)"])
 
@@ -97,6 +98,25 @@ def books_list_transactions(db: DbDep, company: CompanyDep,
     rows = list(db.scalars(q.order_by(Transaction.id.desc()).limit(limit + 1)))
     nxt = str(rows[limit - 1].id) if len(rows) > limit else None
     return Page(items=[TransactionOut.model_validate(r) for r in rows[:limit]], next_cursor=nxt, total=total)
+
+
+@router.get("/transactions/export", response_class=Response,
+            responses={200: {"content": {"text/csv": {}, "application/vnd.openxmlformats-officedocument."
+                                                                     "spreadsheetml.sheet": {}}}})
+def books_export_transactions(db: DbDep, company: CompanyDep, format: Literal["xlsx", "csv", "1c"] = "xlsx",
+                              month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+                              store_id: int | None = None) -> Response:
+    """Export transactions to Excel, CSV or a 1C import CSV."""
+    q = select(Transaction).where(Transaction.company_id == company.id)
+    if month:
+        y, m = (int(x) for x in month.split("-"))
+        q = q.where(Transaction.date >= date(y, m, 1), Transaction.date < date(y + (m == 12), m % 12 + 1, 1))
+    if store_id is not None:
+        q = q.where(Transaction.store_id == store_id)
+    rows = [TransactionOut.model_validate(t).model_dump() for t in db.scalars(q.order_by(Transaction.date))]
+    data, media, ext = stock.export_rows(rows, format, stock.TX_COLUMNS, stock.TX_1C, "Transactions")
+    name = f"transactions_{month or 'all'}.{ext}"
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.post("/transactions", response_model=TransactionOut, status_code=201)

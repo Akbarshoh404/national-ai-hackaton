@@ -16,7 +16,7 @@ from app.catalog import REALTY_CATEGORIES, norm_model, normalize_district
 from app.db import utcnow
 from app.errors import AppError, conflict, forbidden, not_found
 from app.i18n import fmt_uzs, register, t
-from app.models import Company, Deal, InventoryItem, Listing, Offer, Quote, Rating, Rfq, Transaction
+from app.models import Company, Deal, InventoryItem, Listing, Offer, Quote, Rating, Rfq, Store, Transaction
 from app.services import alerts, pricing
 
 register({
@@ -241,9 +241,10 @@ def _move_inventory(db: Session, seller_id: int, buyer_id: int, item: Any, qty: 
         if row.qty == 0:
             row.status = "sold"
             row.sold_at = date.today()
+    main_store = db.scalar(select(Store.id).where(Store.company_id == buyer_id).order_by(Store.id).limit(1))
     db.add(InventoryItem(company_id=buyer_id, category=item.category, brand=item.brand, model=item.model,
                          condition=item.condition, attrs=item.attrs or {}, district=district, qty=qty,
-                         unit_cost=unit_price, acquired_at=date.today()))
+                         unit_cost=unit_price, acquired_at=date.today(), store_id=main_store))
 
 
 def book_deal(db: Session, *, buyer: Company, seller: Company, item: Any, qty: int, unit_price: float,
