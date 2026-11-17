@@ -259,8 +259,13 @@ _SAMPLE_COLS = ["id", "brand", "model", "price_uzs", "price_usd", "condition", "
                 "posted_at", "source_url", "attrs"]
 
 
+def _nn(v: Any) -> Any:
+    """pandas missing values (NaN/NaT/None) → None."""
+    return None if not isinstance(v, dict) and pd.isna(v) else v
+
+
 def _samples(frame: pd.DataFrame) -> list[dict[str, Any]]:
-    cols = {c: frame[c].tolist() for c in _SAMPLE_COLS}
+    cols = {c: [_nn(v) for v in frame[c].tolist()] for c in _SAMPLE_COLS}
     return [_sample({c: cols[c][i] for c in _SAMPLE_COLS}) for i in range(len(frame))]
 
 

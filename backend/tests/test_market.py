@@ -26,7 +26,7 @@ def test_price_all_categories(client, chilonzor, body, lo, hi):
     assert e["range_uzs"][0] <= e["fair_price_uzs"] <= e["range_uzs"][1]
     assert e["fair_buy_price_uzs"] <= e["fair_price_uzs"]
     assert e["comparables"] >= 3 and e["basis"] and e["confidence"] in ("high", "medium", "low")
-    assert e["samples"] and e["samples"][0]["source_url"].startswith("seed://")
+    assert e["samples"] and all(x["source_url"] for x in e["samples"])
     assert elapsed < 0.5
 
 
