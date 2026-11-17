@@ -125,6 +125,14 @@ def _known_models(db: Session, category: str) -> list[tuple[str, str | None, str
     return sorted({(n, b, m) for n, b, m in rows if n}, key=lambda r: -len(r[0]))
 
 
+def _category_by_model(db: Session, text: str, cats: list[str]) -> str | None:
+    """Category whose known model (longest first) appears in the text."""
+    low = norm_model(text)
+    hits = [(len(n), c) for c in cats for n, _, _ in _known_models(db, c)
+            if re.search(r"\b" + re.escape(n) + r"\b", low)]
+    return max(hits)[1] if hits else None
+
+
 def rule_extract(db: Session, post: RawPost, hint: str) -> dict[str, Any]:
     """Deterministic extraction used when no LLM key is configured."""
     text = post.text
@@ -136,7 +144,9 @@ def rule_extract(db: Session, post: RawPost, hint: str) -> dict[str, Any]:
     elif "laptop" in cats and _LAPTOP_WORDS.search(text):
         cat = "laptop"
     else:
-        cat = next(c for c in cats if c != "rent") if cats != ["rent"] else "rent"
+        goods = [c for c in cats if c in ("phone", "laptop", "car")]
+        cat = _category_by_model(db, post.text, goods) if len(goods) > 1 else None
+        cat = cat or (next(c for c in cats if c != "rent") if cats != ["rent"] else "rent")
     price = parse_price(text, cat)
     if not price:
         return {"skip": True, "skip_reason": "no_price"}

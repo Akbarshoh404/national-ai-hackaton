@@ -193,8 +193,29 @@ def _canon_category(v: Any) -> str | None:
     return None
 
 
-def parse_upload(content: bytes, filename: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Parse a CSV/XLSX book export. Returns (valid rows, errors[{row, error}])."""
+UPLOAD_FIELDS = list(_COLUMN_ALIASES)
+
+
+def detect_mapping(columns: list[str]) -> dict[str, dict[str, Any]]:
+    """Proposed {source_column: {field, confidence}}: exact alias = 1.0, alias contained in the name = 0.6."""
+    out: dict[str, dict[str, Any]] = {}
+    used: set[str] = set()
+    for col in columns:
+        low = str(col).strip().lower()
+        field, conf = _canon_col(col), 1.0
+        if field is None:
+            field = next((f for f, aliases in _COLUMN_ALIASES.items() for a in aliases
+                          if len(a) >= 3 and a in low and f not in used), None)
+            conf = 0.6 if field else 0.0
+        if field in used:
+            field, conf = None, 0.0
+        if field:
+            used.add(field)
+        out[str(col)] = {"field": field, "confidence": conf}
+    return out
+
+
+def _read_frame(content: bytes, filename: str) -> pd.DataFrame:
     name = (filename or "").lower()
     try:
         if name.endswith((".xlsx", ".xls")):
@@ -205,8 +226,27 @@ def parse_upload(content: bytes, filename: str) -> tuple[list[dict[str, Any]], l
             df = pd.read_csv(io.StringIO(text), sep=sep, dtype=object)
     except Exception as exc:
         raise AppError("unreadable_file", f"Could not read file: {type(exc).__name__}", 400) from exc
-    mapping = {c: _canon_col(c) for c in df.columns}
-    df = df.rename(columns={c: m for c, m in mapping.items() if m})
+    return df
+
+
+def parse_upload(content: bytes, filename: str, mapping: dict[str, str | None] | None = None,
+                 limit: int | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Parse a CSV/XLSX book export. `mapping` {source_column: field|null} overrides auto-detection.
+
+    Returns (valid rows, errors[{row, error}]).
+    """
+    df = _read_frame(content, filename)
+    if mapping is None:
+        mapping = {c: m["field"] for c, m in detect_mapping(list(df.columns)).items()}
+    else:
+        bad = {f for f in mapping.values() if f and f not in UPLOAD_FIELDS}
+        if bad:
+            raise AppError("invalid_mapping", "Unknown target fields in mapping", 422,
+                           {"fields": sorted(bad), "allowed": UPLOAD_FIELDS})
+    df = df[[c for c in df.columns if mapping.get(str(c))]].rename(columns={c: mapping[str(c)] for c in df.columns
+                                                                            if mapping.get(str(c))})
+    if limit is not None:
+        df = df.head(limit)
     missing = [c for c in ("date", "category") if c not in df.columns]
     if missing or ("total" not in df.columns and not {"qty", "unit_price"} <= set(df.columns)):
         raise AppError("missing_columns", "Required columns: date, category and total (or qty + unit_price)", 400,

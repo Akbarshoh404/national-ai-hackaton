@@ -215,3 +215,31 @@ Choices made while building, where the spec left room. Grouped by area.
 - **Seed:** Demo Lizing Bank holds 10 collateral items. Balances are set as a share of live market value
   (Malibu 2 at 80% → breach, Tracker 2 at 67% → watch). Chilonzor's 150M business-loan application pledges 5
   iPhone 13 units.
+
+## Fast inputs
+- **`/input/parse`:** the rule parser always runs. When an LLM is configured, the LLM gets the extractor's field
+  schema and its text fields (category, brand, model, district, condition, attrs) are merged with the rule output.
+  **Any price always comes from the rule parser** (the LLM never supplies numbers that we return as facts).
+  - Variants missing from the market dictionary are appended to the matched model ("iPhone 13" + "pro" →
+    "iPhone 13 Pro").
+  - "45 ming probeg" is read as mileage, not as a price.
+  - Realty words (`xona`, `kv`, `m²`, `комн`) mean house, or rent when rent/furnished words appear.
+  - Condition is never guessed from battery %: it stays in `missing_fields` and the UI asks.
+  - Required fields: phone model/storage/condition; laptop model/RAM/SSD/condition; car model/year/mileage;
+    house district/rooms/area; rent district/rooms. Confidence: 0 missing = high, 1 = medium, otherwise low.
+- **`/input/voice`** transcribes with Gemini (`llm.transcribe`) and then runs the same parse. Without a key it
+  returns 503 `llm_unavailable`. Accepted: ogg/mp3/m4a/wav/webm, ≤ 10 MB (413 above, 415 for other types).
+- **`/input/imei`:** Luhn check plus a lookup in `data/tac.csv`. **That TAC table is made-up demo data** covering
+  the seeded models; a real TAC database needs a paid GSMA licence. No external IMEI service is ever called.
+- **`/market/price-from-link`:**
+  1. Looks up the raw post (source + msg_id) or the listing `source_url`.
+  2. If missing and the listener is connected, reads that single message with the listener's client
+     (read-only), stores it via `save_post` (PII strip) and extracts it with the normal `process_batch`.
+  3. Otherwise 404 `post_not_found`. Non-offers return 422 `not_an_offer`.
+  The estimate excludes the listing itself.
+- When a source hint covers several goods categories (`mixed`, `mixed_tech`, unknown channels), the rule
+  extractor now picks the category whose known model appears in the text.
+- **Upload preview:** mapping confidence is 1.0 for an exact alias and 0.6 when an alias is contained in the
+  header (e.g. "Jami summa" → total); each field is used at most once. A preview whose required columns aren't
+  mapped returns the mapping with a row-0 error instead of failing. `POST /books/upload` takes an optional
+  `mapping` form field (JSON, `null` = ignore column) and an optional `store_id`.

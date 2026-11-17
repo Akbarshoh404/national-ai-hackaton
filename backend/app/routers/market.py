@@ -12,6 +12,7 @@ from app.catalog import norm_model, normalize_district
 from app.deps import CompanyDep, DbDep, LangDep
 from app.models import Listing
 from app.schemas.common import Category, Page
+from app.schemas.inputs import LinkIn, LinkPriceOut
 from app.schemas.market import (
     AskingComparison,
     HeatmapOut,
@@ -24,7 +25,7 @@ from app.schemas.market import (
     RentalYieldRequest,
     TrendOut,
 )
-from app.services import market, pricing
+from app.services import inputs, market, pricing
 from app.services.sse import sse_response
 
 router = APIRouter(prefix="/market", tags=["market (#19)"])
@@ -101,6 +102,15 @@ def market_price(body: PriceRequest, db: DbDep, _: CompanyDep, lang: LangDep) ->
     est = pricing.estimate(db, body.category, body.model, body.condition, body.district, body.attrs,
                            brand=body.brand, lang=lang)
     return estimate_out(est, body.asking_price_uzs, lang)
+
+
+@router.post("/price-from-link", response_model=LinkPriceOut)
+async def market_price_from_link(body: LinkIn, db: DbDep, _: CompanyDep, lang: LangDep) -> LinkPriceOut:
+    """Price a t.me/<channel>/<msg_id> post: from the DB, or fetched read-only when the Telegram worker is on."""
+    lst, fetched = await inputs.listing_for_link(db, body.url)
+    priced = inputs.price_listing(db, lst, lang)
+    return LinkPriceOut(listing=listing_out(lst), estimate=estimate_out(priced["estimate"], lang=lang),
+                        diff_pct=priced["diff_pct"], badge=priced["badge"], fetched=fetched)
 
 
 @router.get("/sourcing-radar", response_model=Page[ListingOut])

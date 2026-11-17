@@ -68,6 +68,20 @@ class UploadResult(BaseModel):
     errors: list[UploadError]
 
 
+class ColumnMapping(BaseModel):
+    field: str | None
+    confidence: float
+
+
+class UploadPreview(BaseModel):
+    columns: list[str]
+    mapping: dict[str, ColumnMapping] = Field(description="Proposed {source column: field} with confidence")
+    fields: list[str] = Field(description="Allowed target fields")
+    total_rows: int
+    rows: list[TransactionIn] = Field(description="First 10 parsed rows")
+    errors: list[UploadError]
+
+
 class InvoiceResult(BaseModel):
     committed: bool
     extracted: list[TransactionIn]

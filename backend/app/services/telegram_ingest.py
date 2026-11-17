@@ -258,3 +258,22 @@ async def run_history(limit: int | None = None) -> dict[str, int]:
         if own:
             await client.disconnect()
     return stats
+
+
+def connected() -> bool:
+    """True when the live listener holds an authorized client."""
+    return _client is not None
+
+
+async def fetch_message(channel: str, msg_id: int) -> tuple[str, datetime, bool] | None:
+    """Read one public message (read-only) through the listener's client: (text, date, has_photo)."""
+    if _client is None:
+        return None
+    try:
+        msg = await _client.get_messages(channel, ids=msg_id)
+    except Exception as exc:  # private channel, bad id, flood wait...
+        log.warning("fetch_message failed for %s/%s: %s", channel, msg_id, type(exc).__name__)
+        return None
+    if msg is None or not getattr(msg, "message", None):
+        return None
+    return msg.message, msg.date, msg.photo is not None

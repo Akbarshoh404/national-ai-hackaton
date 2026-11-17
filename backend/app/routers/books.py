@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import func, select
 
@@ -25,6 +26,7 @@ from app.schemas.books import (
     TransactionIn,
     TransactionOut,
     TxType,
+    UploadPreview,
     UploadResult,
 )
 from app.schemas.common import OkResponse, Page
@@ -41,14 +43,50 @@ async def _read_limited(file: UploadFile) -> bytes:
 
 
 @router.post("/upload", response_model=UploadResult)
-async def books_upload(db: DbDep, company: CompanyDep, file: UploadFile = File(...)) -> UploadResult:
-    """Import a CSV/XLSX book export (column names in uz/ru/en)."""
+async def books_upload(db: DbDep, company: CompanyDep, file: UploadFile = File(...),
+                       mapping: str | None = Form(None, description='Optional JSON {"source column": "field"}'),
+                       store_id: int | None = Form(None)) -> UploadResult:
+    """Import a CSV/XLSX book export (column names in uz/ru/en, or an explicit mapping from the preview)."""
     content = await _read_limited(file)
-    rows, errors = books.parse_upload(content, file.filename or "upload.csv")
+    rows, errors = books.parse_upload(content, file.filename or "upload.csv", _mapping(mapping))
+    if store_id is not None:
+        for r in rows:
+            r["store_id"] = store_id
     books.create_transactions(db, company, rows, origin="upload")
     activity.log(db, company, "books.upload", "transaction", None,
                  f"Imported {len(rows)} rows from {file.filename} ({len(errors)} errors)")
     return UploadResult(created=len(rows), errors=errors)
+
+
+def _mapping(raw: str | None) -> dict[str, str | None] | None:
+    if not raw:
+        return None
+    try:
+        m = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AppError("invalid_mapping", "mapping must be a JSON object", 422) from exc
+    if not isinstance(m, dict):
+        raise AppError("invalid_mapping", "mapping must be a JSON object", 422)
+    return m
+
+
+@router.post("/upload/preview", response_model=UploadPreview)
+async def books_upload_preview(_: CompanyDep, file: UploadFile = File(...),
+                               mapping: str | None = Form(None)) -> UploadPreview:
+    """Detected columns, proposed mapping with confidence, first 10 parsed rows and per-row errors."""
+    content = await _read_limited(file)
+    frame = books._read_frame(content, file.filename or "upload.csv")
+    detected = books.detect_mapping(list(frame.columns))
+    override = _mapping(mapping)
+    used = override if override is not None else {c: m["field"] for c, m in detected.items()}
+    try:
+        rows, errors = books.parse_upload(content, file.filename or "upload.csv", used, limit=10)
+    except AppError as exc:
+        if exc.code != "missing_columns":
+            raise
+        rows, errors = [], [{"row": 0, "error": f"{exc.message}: map {', '.join(exc.details['missing'])}"}]
+    return UploadPreview(columns=[str(c) for c in frame.columns], mapping=detected, fields=books.UPLOAD_FIELDS,
+                         total_rows=len(frame), rows=[TransactionIn(**r) for r in rows], errors=errors)
 
 
 @router.get("/upload/template", response_class=PlainTextResponse,

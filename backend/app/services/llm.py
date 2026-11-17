@@ -109,3 +109,15 @@ def vision_json(image: bytes, mime_type: str, prompt: str, timeout: float | None
 
     parts = [types.Part.from_bytes(data=image, mime_type=mime_type), prompt]
     return parse_json(_call(parts, json_mode=True, temperature=0.0, timeout=timeout or 30))
+
+
+def transcribe(audio: bytes, mime_type: str, timeout: float | None = None) -> str | None:
+    """Speech → text (Uzbek/Russian). Returns None without a key or on failure."""
+    if not available():
+        return None
+    from google.genai import types
+
+    parts = [types.Part.from_bytes(data=audio, mime_type=mime_type),
+             "Transcribe this voice note verbatim. It is in Uzbek or Russian. Return only the transcript."]
+    out = _call(parts, json_mode=False, temperature=0.0, timeout=timeout or 30)
+    return out.strip() if out else None
