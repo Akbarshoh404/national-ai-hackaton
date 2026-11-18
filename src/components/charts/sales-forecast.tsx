@@ -83,7 +83,7 @@ export function SalesForecast({ days, todayIndex, initialStart }: { days: SalesD
   };
 
   const point = hover !== null ? days[hover] : null;
-  const dateTicks = visible.map((d, k) => ({ d, i: start + k })).filter((_, k) => k % 12 === 0);
+  const dateTicks = visible.map((d, k) => ({ d, i: start + k })).filter((_, k) => k % (width < 520 ? 24 : 12) === 0);
 
   const navX = (i: number) => (i / (days.length - 1)) * width;
   const navValues = days.map(valueOf);

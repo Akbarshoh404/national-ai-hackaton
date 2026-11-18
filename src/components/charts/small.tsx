@@ -1,7 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
-import { MINUS, usd } from "@/lib/format";
+import { usd } from "@/lib/format";
 import type { ScheduleRow } from "@/lib/api/schemas";
 import { cn, clamp } from "@/lib/utils";
 import { ChartTip, TickText, linePath, useCursor, useWidth } from "./base";
@@ -230,6 +229,3 @@ export function ScheduleBars({ schedule, height = 120, format }: { schedule: Sch
     </div>
   );
 }
-
-export const Sep = Fragment;
-export const minus = MINUS;

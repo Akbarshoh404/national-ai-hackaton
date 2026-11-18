@@ -130,7 +130,7 @@ export function OmborView() {
           <p className="t-mono-cap ml-auto self-center">{rows.length} ta qator</p>
         </div>
 
-        <div className="mt-3 overflow-x-auto">
+        <div className="relative mt-3 overflow-x-auto">
           <Async
             query={units}
             skeleton={<SkeletonLines rows={8} height={44} />}

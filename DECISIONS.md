@@ -42,6 +42,27 @@ Each entry records a choice made while building, and why.
 - The bazaar administration sees the market report at `/partner`.
 - Sergeli Avto appears in the Figma account list but has no key in the prompt, so it is not offered as a login. It still exists as a borrower.
 
+## Demo flow
+
+- **Didox sync.** The seed already holds all 4 audit flags, so Kitoblar opens as in Figma. Sync marks the two Didox flags "Didox’dan yangi", reports them and selects invoice #2231, rather than adding rows that would break the "4 / 412" numbers.
+- **Loan application.** The bank sees Chilonzor's application only after consent, so "Yangi arizalar" reads 1 before the demo step and 2 after it. Showing it earlier would contradict the consent story.
+- **Live feed** moves only when the presenter presses "Keyingi e’lonni o‘qish", because section 8 forbids fake live activity.
+- **The IMEI scan button** fills a sample IMEI. There is no camera flow.
+- **Copilot answers on fixtures are rule-based**, keyed on words such as kredit, budjet, savdo, ombor or a model name.
+- **Excel and 1C exports are CSV files** that Excel opens. On fixtures, uploaded `.xlsx` and 1C files show sample columns with a warning; CSV files are really parsed.
+
+## Cut, following the prompt's cut order
+
+- Russian and English copy beyond the shell and Bugun.
+- The customizable widget edit mode on Bugun, so `dnd-kit` is not installed.
+- Real xlsx generation for the market report (CSV instead).
+- Voice input returns 503 on fixtures and falls back to typing, as the brief describes.
+
+## Accessibility check
+
+- Lighthouse could not be run in this environment. `npm run a11y` runs axe-core, the engine behind Lighthouse's accessibility score, on all screens instead.
+- The command palette search has a screen-reader label rather than a visible one, because the field is the whole dialog.
+
 ## i18n
 
 - Shell and Bugun are fully translated in `uz`, `ru` and `en`. Other screens keep their Uzbek copy in the components. The prompt lists Russian and English copy first in the cut order.

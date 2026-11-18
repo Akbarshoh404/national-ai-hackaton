@@ -21,7 +21,6 @@ export function DialogContent({
     <D.Portal>
       <D.Overlay className="fade-in fixed inset-0 z-40 bg-[rgb(15_23_22/0.24)]" />
       <D.Content
-        aria-describedby={description ? undefined : undefined}
         className={cn(
           "pop fade-in fixed top-1/2 left-1/2 z-50 max-h-[calc(100vh-40px)] w-[calc(100vw-32px)] max-w-[520px] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-[36px] p-5",
           className,

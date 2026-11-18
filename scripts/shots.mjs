@@ -30,10 +30,14 @@ const SCREENS = [
   { name: "model", account: "chilonzor-owner", path: "/model" },
 ];
 
-const SIZES = [
-  { width: 1440, height: 900 },
-  { width: 1280, height: 800 },
-];
+// RAFT_SIZE=390x844 captures one extra size instead of the two standard ones.
+const custom = process.env.RAFT_SIZE?.split("x").map(Number);
+const SIZES = custom
+  ? [{ width: custom[0], height: custom[1] }]
+  : [
+      { width: 1440, height: 900 },
+      { width: 1280, height: 800 },
+    ];
 
 async function launch() {
   for (const channel of ["chrome", "msedge", "chromium"]) {
@@ -67,7 +71,8 @@ for (const size of SIZES) {
       if (id) localStorage.setItem("raft_account", id);
       else localStorage.removeItem("raft_account");
     }, screen.account);
-    await page.goto(`${BASE}${screen.path}`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}${screen.path}`, { waitUntil: "load" });
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(500);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     if (overflow > 0) problems.push(`${screen.name} ${size.width}: page overflows by ${overflow}px`);

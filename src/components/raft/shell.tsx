@@ -264,7 +264,7 @@ export function Page({
   const showCopilot = account.kind === "business";
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5">
-      <header className="glass relative z-20 flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 rounded-[36px] py-2 pr-3 pl-5">
+      <header className="glass relative z-20 flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 rounded-[36px] py-2 pr-3 pl-5 xl:flex-nowrap">
         <h1 className="text-[17px] leading-[24px] font-semibold whitespace-nowrap">{title}</h1>
         {tabs ? (
           <nav aria-label={`${title} bo‘limlari`} className="seg max-w-full overflow-x-auto">
@@ -276,12 +276,12 @@ export function Page({
           </nav>
         ) : null}
         {subtitle ? <p className="truncate-1 text-[14px] text-text-2">{subtitle}</p> : null}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex min-w-0 items-center justify-end gap-1">
           {source === "fixtures" ? <span className="mr-3 hidden text-[12px] text-muted whitespace-nowrap lg:inline">{t.shell.demoData}</span> : null}
           <button
             type="button"
             onClick={openPalette}
-            className="mr-1 flex h-10 w-[200px] items-center gap-2 rounded-[20px] border border-[rgb(15_23_22/0.06)] bg-white/70 px-3 text-[14px] text-muted transition-colors duration-150 hover:bg-white/90 max-lg:w-11 max-lg:justify-center max-lg:px-0 xl:w-[260px] 2xl:w-[320px]"
+            className="mr-1 flex h-10 w-[200px] min-w-[120px] shrink items-center gap-2 rounded-[20px] border border-[rgb(15_23_22/0.06)] bg-white/70 px-3 text-[14px] text-muted transition-colors duration-150 hover:bg-white/90 max-lg:w-11 max-lg:min-w-11 max-lg:justify-center max-lg:px-0 xl:w-[260px] 2xl:w-[320px]"
           >
             <Search size={16} strokeWidth={1.75} aria-hidden className="shrink-0" />
             <span className="max-lg:sr-only">{t.shell.search}</span>

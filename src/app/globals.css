@@ -252,8 +252,14 @@
     background: var(--nested);
   }
   .link {
+    position: relative;
     color: var(--accent-text);
     font-weight: 500;
+  }
+  .link::after {
+    content: "";
+    position: absolute;
+    inset: -12px -4px;
   }
   .link:hover {
     text-decoration: underline;
@@ -292,6 +298,7 @@
     background: var(--nested);
   }
   .seg-item {
+    position: relative;
     display: inline-flex;
     align-items: center;
     height: 36px;
@@ -304,6 +311,11 @@
     transition:
       background-color 180ms var(--ease),
       color 180ms var(--ease);
+  }
+  .seg-item::after {
+    content: "";
+    position: absolute;
+    inset: -4px 0;
   }
   .seg-item:hover {
     color: var(--text);

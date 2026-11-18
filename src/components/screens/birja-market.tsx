@@ -132,7 +132,7 @@ export function RadarView() {
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 overflow-x-auto">
+                <div className="relative mt-3 overflow-x-auto">
                   {rows.length === 0 ? (
                     <EmptyState text="Bu toifada bugun topilma yo‘q." action={<Button variant="plain" className="-ml-2" onClick={() => setFilter("all")}>Hammasini ko‘rsatish</Button>} />
                   ) : (

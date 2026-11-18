@@ -18,7 +18,7 @@ import { DEMO_TODAY, dateShort, mln, pct, pctSigned, usd, usdSigned, weekdayDate
 import { cn } from "@/lib/utils";
 
 function DecisionTile() {
-  const t = useT().bugun;
+  const { bugun: t, shell } = useT();
   const query = useDecisions();
   const decide = useDecide();
   const seen = useRef(0);
@@ -46,9 +46,9 @@ function DecisionTile() {
         </div>
       ) : query.isError ? (
         <div className="mt-4">
-          <p>{useTError}</p>
+          <p>{shell.loadError}</p>
           <button type="button" className="btn -ml-5 text-white underline" onClick={() => void query.refetch()}>
-            Qayta urinish
+            {shell.retry}
           </button>
         </div>
       ) : !current ? (
@@ -102,14 +102,20 @@ function DecisionTile() {
   );
 }
 
-const useTError = "Qarorlarni yuklab bo‘lmadi.";
-
 function SourcingTile() {
   const t = useT().bugun;
   const query = useRadar();
   return (
     <Tile className="flex flex-col">
-      <TileHeader title={t.sourcing} right={`Telegram · ${t.today_lower}`} />
+      <TileHeader
+        title={t.sourcing}
+        right={
+          <>
+            <span className="hidden min-[1400px]:inline">Telegram · </span>
+            {t.today_lower}
+          </>
+        }
+      />
       <div className="mt-3 flex-1">
         <Async query={query} skeleton={<SkeletonLines rows={3} height={40} />}>
           {(data) => (
