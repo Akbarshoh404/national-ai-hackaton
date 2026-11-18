@@ -24,7 +24,7 @@ from app.core.deps import hash_key
 from app.core.models import Budget, Company, Deal, InventoryItem, Listing, Offer, Quote, Rating, Rfq, Store, Transaction
 from app.intelligence.market import market, pricing
 
-log = logging.getLogger("bozorpilot.seed")
+log = logging.getLogger("raft.seed")
 
 # --------------------------------------------------------------------------- #
 # SYNTHETIC market reference data                                             #

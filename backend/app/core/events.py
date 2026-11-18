@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-log = logging.getLogger("bozorpilot.events")
+log = logging.getLogger("raft.events")
 
 
 @dataclass

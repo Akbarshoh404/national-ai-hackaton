@@ -18,9 +18,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # --- infrastructure -------------------------------------------------------
-    DATABASE_URL: str = "sqlite:///./bozorpilot.db"
+    DATABASE_URL: str = "sqlite:///./raft.db"
     ADMIN_KEY: str = "change-me"
-    CORS_ORIGINS: str = "http://localhost:3000,https://bozorpilot.vercel.app"
+    CORS_ORIGINS: str = "http://localhost:3000,https://raft.vercel.app"
     DEMO_MODE: bool = True
     AUTO_MIGRATE: bool = True
     LOG_LEVEL: str = "INFO"
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     TG_API_ID: int | None = None
     TG_API_HASH: str = ""
     TG_SESSION: str = ""
-    TG_SESSION_FILE: str = "bozorpilot"
+    TG_SESSION_FILE: str = "raft"
     TG_HISTORY_LIMIT: int = 3000
     TG_BOT_TOKEN: str = ""
     SOURCES_FILE: str = "sources.yaml"

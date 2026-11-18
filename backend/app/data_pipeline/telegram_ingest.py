@@ -26,7 +26,7 @@ from app.core.config import settings
 from app.core.models import RawPost, Source
 from app.data_pipeline import sources
 
-log = logging.getLogger("bozorpilot.telegram")
+log = logging.getLogger("raft.telegram")
 
 PRICE_SIGNAL = re.compile(
     r"(\$|у\.?\s?е|y\.?\s?e|so['ʻ’`]?m|сум|\bmln\b|млн|\bming\b|narx|цена|\d{6,}|\d{1,3}(?:[ .,]\d{3}){2,})",

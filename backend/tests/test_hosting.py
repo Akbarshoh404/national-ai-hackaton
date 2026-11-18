@@ -60,7 +60,7 @@ def test_workers_stay_off_without_secrets(monkeypatch, caplog):
     async def start():
         return main._start_workers()
 
-    with caplog.at_level("WARNING", logger="bozorpilot"):
+    with caplog.at_level("WARNING", logger="raft"):
         tasks = asyncio.run(start())
     assert tasks == []
     assert workers.STATUS["telegram"][0] == "not_configured" and "TG_SESSION" in workers.STATUS["telegram"][1]

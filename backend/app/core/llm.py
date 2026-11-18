@@ -15,7 +15,7 @@ from typing import Any
 
 from app.core.config import settings
 
-log = logging.getLogger("bozorpilot.llm")
+log = logging.getLogger("raft.llm")
 
 _client: Any = None
 _last_error: str | None = None

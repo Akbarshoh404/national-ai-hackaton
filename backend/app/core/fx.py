@@ -10,7 +10,7 @@ import httpx
 from app.core.config import settings
 from app.core.db import utcnow
 
-log = logging.getLogger("bozorpilot.fx")
+log = logging.getLogger("raft.fx")
 
 CBU_URL = "https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/"
 

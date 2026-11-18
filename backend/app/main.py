@@ -24,7 +24,7 @@ from app.core.events import bus
 from app.core.logging_setup import setup_logging
 from app.core.memory import rss_mb
 
-log = logging.getLogger("bozorpilot")
+log = logging.getLogger("raft")
 
 
 def _start_workers() -> list[asyncio.Task]:
@@ -82,7 +82,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         except Exception:
             log.exception("startup migration failed")
     tasks = _start_workers()
-    log.info("BozorPilot API started (%d workers, port %s, memory %s MB)", len(tasks), settings.PORT,
+    log.info("Raft API started (%d workers, port %s, memory %s MB)", len(tasks), settings.PORT,
              rss_mb() or "n/a")
     try:
         yield
@@ -140,7 +140,7 @@ OPENAPI_TAGS = [
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="BozorPilot AI API",
+        title="Raft API",
         version="2.0.0",
         description=API_DESCRIPTION,
         openapi_tags=OPENAPI_TAGS,

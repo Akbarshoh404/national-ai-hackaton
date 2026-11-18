@@ -28,7 +28,7 @@ from app.core.permissions import PARTNER_COMPANY_ROLES
 from app.intelligence.books import books
 from app.intelligence.market import market, stock
 
-log = logging.getLogger("bozorpilot.decisions")
+log = logging.getLogger("raft.decisions")
 
 register({
     "dec.reprice.t": {"uz": "{n} ta mahsulot narxi bozordan yuqori", "ru": "{n} товаров дороже рынка",

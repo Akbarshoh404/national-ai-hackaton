@@ -1,4 +1,4 @@
-# BozorPilot AI — backend
+# Raft — backend
 
 The full documentation (architecture, every endpoint, engines, Telegram, integrations, data model, tests,
 deployment, demo script and go-live checklist) is in the repository root: **[../README.md](../README.md)**.

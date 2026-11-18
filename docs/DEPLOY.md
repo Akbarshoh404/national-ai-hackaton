@@ -1,11 +1,11 @@
-# Deploying BozorPilot for free
+# Deploying Raft for free
 
 Target setup: **Render** (free Docker web service) for the API, **Neon** (free PostgreSQL) for the database, and
 **Vercel** or **Cloudflare Pages** for the frontend. To run from a laptop instead, there's a **Cloudflare quick
 tunnel** option.
 
 ```
- browser ──► Vercel / Cloudflare Pages (Next.js) ──► https://bozorpilot-api.onrender.com/api/v1 ──► Neon PostgreSQL
+ browser ──► Vercel / Cloudflare Pages (Next.js) ──► https://raft-api.onrender.com/api/v1 ──► Neon PostgreSQL
                                                          ▲
                        cron-job.org ── GET /api/v1/ping ─┘   (every 10 min, keeps the free service awake)
 ```
@@ -76,7 +76,7 @@ typically a few minutes. **`--reset` drops every table first**, so don't run it 
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | the Neon string from step 1 |
-| `CORS_ORIGINS` | your frontend origin(s), comma-separated, e.g. `https://bozorpilot.vercel.app` |
+| `CORS_ORIGINS` | your frontend origin(s), comma-separated, e.g. `https://raft.vercel.app` |
 | `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` | optional — the Telegram listener stays off (with a warning) without them |
 | `TG_BOT_TOKEN` | optional — the bot stays off without it |
 | `GEMINI_API_KEY` | optional — rule-based fallbacks are used without it |
@@ -97,13 +97,13 @@ What happens on deploy:
 Check it:
 
 ```bash
-curl https://bozorpilot-api.onrender.com/api/v1/ping
+curl https://raft-api.onrender.com/api/v1/ping
 ```
 ```bash
-curl https://bozorpilot-api.onrender.com/api/v1/health
+curl https://raft-api.onrender.com/api/v1/health
 ```
 
-Swagger is at `https://bozorpilot-api.onrender.com/` (redirects to `/docs`).
+Swagger is at `https://raft-api.onrender.com/` (redirects to `/docs`).
 
 ## 4. Keep the free service awake (cron-job.org)
 
@@ -111,7 +111,7 @@ Free Render services spin down after ~15 minutes without traffic, and the next r
 while the service starts again. The Telegram listener and bot also stop while it sleeps.
 
 1. Sign up at https://cron-job.org → **Create cronjob**.
-2. URL: `https://bozorpilot-api.onrender.com/api/v1/ping`, schedule **every 10 minutes**, method GET.
+2. URL: `https://raft-api.onrender.com/api/v1/ping`, schedule **every 10 minutes**, method GET.
 3. Save. `/ping` needs no auth and doesn't touch the database, so it doesn't wake Neon by itself.
 
 Render's free plan includes a monthly allowance of instance hours. One service running 24/7 fits in it; a second
@@ -139,15 +139,15 @@ own domain. Remember the `TG_SESSION` warning above if Render is also running.
 ## 6. Frontend (Vercel or Cloudflare Pages)
 
 - **Vercel:** import the frontend repo, framework Next.js, and set the API base URL env variable (e.g.
-  `NEXT_PUBLIC_API_URL=https://bozorpilot-api.onrender.com/api/v1`).
+  `NEXT_PUBLIC_API_URL=https://raft-api.onrender.com/api/v1`).
 - **Cloudflare Pages:** connect the repo with the Next.js preset (or `@cloudflare/next-on-pages`) and the same
   variable.
 - Generate the typed client from the deployed spec:
   ```bash
-  npx openapi-typescript https://bozorpilot-api.onrender.com/openapi.json -o src/api/schema.ts
+  npx openapi-typescript https://raft-api.onrender.com/openapi.json -o src/api/schema.ts
   ```
 - On the backend, `CORS_ORIGINS` must list the exact frontend origin(s), comma-separated, with no trailing
-  slash, e.g. `https://bozorpilot.vercel.app,https://bozorpilot.pages.dev`. Preview deployments have their own
+  slash, e.g. `https://raft.vercel.app,https://raft.pages.dev`. Preview deployments have their own
   origins; add the ones you use.
 
 ## 7. Telegram on the server

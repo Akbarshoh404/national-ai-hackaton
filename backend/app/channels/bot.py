@@ -25,12 +25,12 @@ from app.core.models import Alert, Company, Rfq
 from app.intelligence.books import books
 from app.intelligence.market import market
 
-log = logging.getLogger("bozorpilot.bot")
+log = logging.getLogger("raft.bot")
 LANG = "uz"
 PUSH_INTERVAL_S = 5
 PUSH_MAX_AGE = timedelta(minutes=30)
 
-HELP = ("BozorPilot AI bot 🤖\n\n"
+HELP = ("Raft bot 🤖\n\n"
         "/link <API_KEY> — kompaniyani ulash / привязать компанию\n"
         "/budget — byudjet holati / бюджет\n"
         "/audit — AI auditor natijalari / аудит\n"

@@ -10,3 +10,6 @@ __pycache__/
 .ruff_cache/
 scratch/
 .claude/
+# local Raft data (SQLite + Telegram session) — never commit
+raft.db*
+*.session

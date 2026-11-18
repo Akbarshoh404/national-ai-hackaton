@@ -1,14 +1,17 @@
+# Compose project name: containers raft-api-1 / raft-db-1, volume raft_pgdata
+name: raft
+
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: bozorpilot
-      POSTGRES_PASSWORD: bozorpilot
-      POSTGRES_DB: bozorpilot
+      POSTGRES_USER: raft
+      POSTGRES_PASSWORD: raft
+      POSTGRES_DB: raft
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bozorpilot"]
+      test: ["CMD-SHELL", "pg_isready -U raft"]
       interval: 5s
       retries: 10
 
@@ -16,7 +19,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://bozorpilot:bozorpilot@db:5432/bozorpilot
+      DATABASE_URL: postgresql://raft:raft@db:5432/raft
     ports:
       - "8000:8000"
     depends_on:

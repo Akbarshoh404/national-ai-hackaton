@@ -120,7 +120,7 @@ def cmd_extract_once(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     setup_logging()
-    p = argparse.ArgumentParser(prog="python -m app.cli", description="BozorPilot AI backend tools")
+    p = argparse.ArgumentParser(prog="python -m app.cli", description="Raft backend tools")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init-db", help="run migrations and load sources.yaml").set_defaults(fn=cmd_init_db)
     s = sub.add_parser("seed", help="load synthetic demo data")

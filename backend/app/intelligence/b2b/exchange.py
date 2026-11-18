@@ -375,7 +375,7 @@ def deal_document_html(db: Session, deal: Deal, lang: str) -> str:
                      "STIR")}[lang]
     t_, s_, b_, i_, a_, q_, p_, tot_, d_, stir_ = labels
     attrs = ", ".join(f"{k}: {v}" for k, v in (deal.attrs or {}).items()) or "—"
-    disclaimer = ("BozorPilot deal record — not a tax invoice (hisob-faktura); issue the e-invoice in "
+    disclaimer = ("Raft deal record — not a tax invoice (hisob-faktura); issue the e-invoice in "
                   "Didox/Soliq.")
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><title>{t_} #{deal.id}</title>
 <style>body{{font-family:Arial,sans-serif;max-width:760px;margin:24px auto;font-size:13px}}table{{width:100%;

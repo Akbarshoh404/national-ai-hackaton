@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-log = logging.getLogger("bozorpilot.errors")
+log = logging.getLogger("raft.errors")
 
 
 class AppError(Exception):

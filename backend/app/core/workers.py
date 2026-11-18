@@ -10,7 +10,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-log = logging.getLogger("bozorpilot.workers")
+log = logging.getLogger("raft.workers")
 
 #: name -> (status, detail). Status: ok | disabled | error | not_configured | starting
 STATUS: dict[str, tuple[str, str | None]] = {

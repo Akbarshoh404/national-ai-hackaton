@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-_TMP = Path(tempfile.mkdtemp(prefix="bozorpilot-test-"))
+_TMP = Path(tempfile.mkdtemp(prefix="raft-test-"))
 os.environ.update({
     "DATABASE_URL": f"sqlite:///{(_TMP / 'test.db').as_posix()}",
     "AUTO_MIGRATE": "false",

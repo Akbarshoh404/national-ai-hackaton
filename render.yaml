@@ -1,8 +1,8 @@
-# Render Blueprint — free Docker web service for the BozorPilot backend.
+# Render Blueprint — free Docker web service for the Raft backend.
 # Database: Neon (free PostgreSQL), set DATABASE_URL in the dashboard. See docs/DEPLOY.md.
 services:
   - type: web
-    name: bozorpilot-api
+    name: raft-api
     runtime: docker
     plan: free
     region: frankfurt
@@ -19,7 +19,7 @@ services:
         sync: false
       - key: ADMIN_KEY
         generateValue: true
-      - key: CORS_ORIGINS          # e.g. https://bozorpilot.vercel.app
+      - key: CORS_ORIGINS          # e.g. https://raft.vercel.app
         sync: false
       - key: TG_API_ID
         sync: false

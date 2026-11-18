@@ -23,7 +23,7 @@ class RedactFilter(logging.Filter):
 
 def setup_logging() -> None:
     root = logging.getLogger()
-    if getattr(root, "_bozorpilot", False):
+    if getattr(root, "_raft", False):
         return
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("ts=%(asctime)s level=%(levelname)s logger=%(name)s msg=\"%(message)s\""))
@@ -33,4 +33,4 @@ def setup_logging() -> None:
     logging.getLogger("telethon").setLevel(logging.WARNING)
     for noisy in ("httpx", "httpx2", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-    root._bozorpilot = True  # type: ignore[attr-defined]
+    root._raft = True  # type: ignore[attr-defined]

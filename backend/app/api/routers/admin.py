@@ -27,7 +27,7 @@ from app.core.errors import AppError, conflict, not_found
 from app.core.models import Listing, RawPost, Source
 from app.data_pipeline import extractor, sources, telegram_ingest
 
-log = logging.getLogger("bozorpilot.admin")
+log = logging.getLogger("raft.admin")
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 _jobs: set[asyncio.Task] = set()
 

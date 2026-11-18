@@ -96,7 +96,7 @@ async def books_upload_preview(_: CompanyDep, file: UploadFile = File(...),
 def books_upload_template() -> PlainTextResponse:
     """Example CSV for the import."""
     return PlainTextResponse(books.TEMPLATE_CSV, media_type="text/csv",
-                             headers={"Content-Disposition": 'attachment; filename="bozorpilot_template.csv"'})
+                             headers={"Content-Disposition": 'attachment; filename="raft_template.csv"'})
 
 
 @router.post("/invoice", response_model=InvoiceResult)

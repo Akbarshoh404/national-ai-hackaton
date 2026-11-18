@@ -26,7 +26,7 @@ from app.core.events import bus
 from app.core.models import Listing, RawPost, Source
 from app.intelligence.market import market, pricing
 
-log = logging.getLogger("bozorpilot.extractor")
+log = logging.getLogger("raft.extractor")
 
 NEW, DONE, FAILED, SKIPPED = 0, 1, 2, 3
 

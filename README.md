@@ -1,4 +1,4 @@
-# BozorPilot AI
+# Raft
 
 **B2B market intelligence and finance co-pilot for Uzbek businesses that trade phones, laptops, cars,
 apartments (sale) and apartment rent.** Built for the National AI Hackathon (Tashkent).
@@ -276,9 +276,9 @@ Everything comes from environment variables (or `backend/.env`). Defaults are sh
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./bozorpilot.db` | SQLite locally; `postgresql://…` / `postgres://…` switch to PostgreSQL with no code changes. Neon strings with `?sslmode=require` work as-is (pool: pre-ping, 3 + 2 connections, recycle every 300 s) |
+| `DATABASE_URL` | `sqlite:///./raft.db` | SQLite locally; `postgresql://…` / `postgres://…` switch to PostgreSQL with no code changes. Neon strings with `?sslmode=require` work as-is (pool: pre-ping, 3 + 2 connections, recycle every 300 s) |
 | `ADMIN_KEY` | `change-me` | `X-Admin-Key` for `/admin/*` |
-| `CORS_ORIGINS` | `http://localhost:3000,https://bozorpilot.vercel.app` | Comma-separated allowed origins |
+| `CORS_ORIGINS` | `http://localhost:3000,https://raft.vercel.app` | Comma-separated allowed origins |
 | `DEMO_MODE` | `true` | Enables `/auth/demo-login` and demo companies in `/meta` |
 | `AUTO_MIGRATE` | `true` | Run Alembic on startup |
 | `LOG_LEVEL` | `INFO` | Log level (key=value format, secrets redacted) |
@@ -286,7 +286,7 @@ Everything comes from environment variables (or `backend/.env`). Defaults are sh
 | `WORKERS_TELEGRAM` / `WORKERS_EXTRACTOR` / `WORKERS_DECISIONS` / `BOT_ENABLED` | `true` | Worker switches |
 | `TG_API_ID`, `TG_API_HASH` | — | Telegram app credentials (my.telegram.org) |
 | `TG_SESSION` | — | StringSession printed by `tg-login`. **The server uses only this** (no session file); the CLI may fall back to the local file. One running backend per session |
-| `TG_SESSION_FILE` | `bozorpilot` | Local session file name |
+| `TG_SESSION_FILE` | `raft` | Local session file name |
 | `TG_HISTORY_LIMIT` | `3000` | Messages per source for history import |
 | `TG_BOT_TOKEN` | — | Bot token from @BotFather |
 | `SOURCES_FILE` | `sources.yaml` | Telegram sources file |
@@ -692,7 +692,7 @@ The roadmap maker (expansion planner and business-plan generator) was removed; s
 
 1. Create an app at https://my.telegram.org → *API development tools*. Put `TG_API_ID` and `TG_API_HASH` in
    `.env`.
-2. Run `python -m app.cli tg-login` and enter your phone, code and 2FA password. It saves `bozorpilot.session`
+2. Run `python -m app.cli tg-login` and enter your phone, code and 2FA password. It saves `raft.session`
    locally (used by the CLI) and prints `TG_SESSION=…`. **The server needs `TG_SESSION`**; without it the
    listener stays off with a warning. **Treat it like a password.**
 
