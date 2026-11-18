@@ -179,7 +179,10 @@ python -m app.cli seed --reset
 uvicorn app.main:app --reload
 ```
 
-Open **http://127.0.0.1:8000/docs** (Swagger) or `/openapi.json`. On Windows, use `127.0.0.1` rather than
+Open **http://127.0.0.1:8000** — it redirects to **Swagger UI** (`/docs`). Click **Authorize**, paste a demo key
+(e.g. `demo-chilonzor-phone`) into `ApiKey`, and every "Try it out" call is sent with it (the key is remembered
+across reloads). The Swagger page lists all demo keys and good first calls. ReDoc is at `/redoc`, the raw spec at
+`/openapi.json`. On Windows, use `127.0.0.1` rather than
 `localhost`: some HTTP clients try IPv6 first and add about 2 s per request.
 
 Log in as a demo company:
