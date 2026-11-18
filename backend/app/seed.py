@@ -16,25 +16,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app import db as dbm
-from app.catalog import DISTRICTS, norm_model
-from app.config import CONDITION_MULTIPLIERS, settings
-from app.db import utcnow
-from app.deps import hash_key
-from app.models import (
-    Budget,
-    Company,
-    Deal,
-    InventoryItem,
-    Listing,
-    Offer,
-    Quote,
-    Rating,
-    Rfq,
-    Store,
-    Transaction,
-)
-from app.services import market, pricing
+from app.core import db as dbm
+from app.core.catalog import DISTRICTS, norm_model
+from app.core.config import CONDITION_MULTIPLIERS, settings
+from app.core.db import utcnow
+from app.core.deps import hash_key
+from app.core.models import Budget, Company, Deal, InventoryItem, Listing, Offer, Quote, Rating, Rfq, Store, Transaction
+from app.intelligence.market import market, pricing
 
 log = logging.getLogger("bozorpilot.seed")
 
@@ -273,7 +261,7 @@ def plant_deals(listings: list[Listing], per_category: int = 5) -> None:
 
 def _company(db: Session, slug: str | None, name: str, stir: str, role: str, cats: list[str],
              district: str) -> Company:
-    from app.routers.auth import demo_key
+    from app.api.routers.auth import demo_key
 
     key = demo_key(slug) if slug else f"seed-{stir}"
     c = Company(slug=slug, name=name, stir=stir, role=role, categories=cats, district=district,
@@ -586,7 +574,7 @@ def run(reset: bool = True) -> dict[str, int]:
         v2 = seed_v2.run(db, companies, today)
         db.commit()
         try:
-            from app.services.telegram_ingest import sync_sources_from_yaml
+            from app.data_pipeline.sources import sync_sources_from_yaml
 
             sync_sources_from_yaml(db)
         except Exception:  # sources file is optional for the demo

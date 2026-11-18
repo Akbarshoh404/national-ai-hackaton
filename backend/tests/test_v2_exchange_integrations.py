@@ -3,10 +3,11 @@
 import asyncio
 from datetime import timedelta
 
-from app import db as dbm
-from app.db import utcnow
-from app.services import bot, extractor
-from app.services.telegram_ingest import save_post
+from app.channels import bot
+from app.core import db as dbm
+from app.core.db import utcnow
+from app.data_pipeline import extractor
+from app.data_pipeline.telegram_ingest import save_post
 
 SAMARQAND = {"X-API-Key": "seed-305678901"}
 

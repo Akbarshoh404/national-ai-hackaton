@@ -4,7 +4,7 @@ from logging.config import fileConfig
 
 from alembic import context
 
-from app import db, models  # noqa: F401  (register models)
+from app.core import db, models  # noqa: F401  (register models)
 
 config = context.config
 if config.config_file_name and config.attributes.get("configure_logger", True):

@@ -1,8 +1,9 @@
 """Phase 7: bot command handlers and alert fan-out (no network)."""
 
-from app import db as dbm
-from app.models import Alert
-from app.services import alerts, bot
+from app.channels import bot
+from app.core import alerts
+from app.core import db as dbm
+from app.core.models import Alert
 
 
 def test_bot_link_and_commands(client):

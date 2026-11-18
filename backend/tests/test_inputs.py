@@ -5,11 +5,11 @@ from datetime import timedelta
 
 import pytest
 
-from app import db as dbm
-from app.db import utcnow
-from app.seed_v2 import make_imei
-from app.services import extractor, telegram_ingest
-from app.services.telegram_ingest import save_post
+from app.core import db as dbm
+from app.core.db import utcnow
+from app.data_pipeline import extractor, telegram_ingest
+from app.data_pipeline.telegram_ingest import save_post
+from app.intelligence.market.imei import make_imei
 
 APPRAISER = {"X-API-Key": "demo-chilonzor-appraiser"}
 
@@ -122,7 +122,7 @@ def test_price_from_link_telegram_path(client, chilonzor, monkeypatch):
     out = r.json()
     assert out["fetched"] == "telegram" and out["listing"]["model"] == "Gentra" and out["listing"]["price_usd"] == 12300
     with dbm.SessionLocal() as db:
-        from app.models import RawPost
+        from app.core.models import RawPost
 
         raw = db.query(RawPost).filter_by(source="liveshop", msg_id=5).one()
         assert "+998" not in raw.text and "[tel]" in raw.text

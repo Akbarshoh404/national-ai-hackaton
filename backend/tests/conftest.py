@@ -24,7 +24,7 @@ os.environ.update({
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db  # noqa: E402
+from app.core import db  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -80,7 +80,8 @@ def admin() -> dict[str, str]:
 def reseed() -> None:
     """Rebuild the demo DB from scratch and clear in-process caches (for modules that mutate seed data)."""
     from app import seed
-    from app.services import books, decisions, pricing
+    from app.intelligence.books import books, decisions
+    from app.intelligence.market import pricing
 
     db.drop_all()
     db.create_all()

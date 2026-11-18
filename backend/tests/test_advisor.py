@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from app.services.finance import annuity_payment, max_principal
+from app.intelligence.advisor.finance import annuity_payment, max_principal
 
 
 def test_annuity_known_value():

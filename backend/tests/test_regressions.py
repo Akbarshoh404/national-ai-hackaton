@@ -1,6 +1,6 @@
 """Regressions found by the live smoke run."""
 
-from app.catalog import norm_model
+from app.core.catalog import norm_model
 
 
 def test_norm_model_ignores_nan_brand():

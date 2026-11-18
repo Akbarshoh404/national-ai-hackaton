@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.decisions import TYPES
+from app.intelligence.books.decisions import TYPES
 
 ALL = set(TYPES)
 

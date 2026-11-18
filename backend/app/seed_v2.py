@@ -6,21 +6,18 @@ Called at the end of `seed.run`.
 
 from __future__ import annotations
 
-import csv
 import random
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.catalog import INTEGRATION_KINDS
-from app.deps import hash_key
-from app.models import Company, InventoryItem, Store, User
-from app.services import pricing
-
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+from app.core.catalog import INTEGRATION_KINDS
+from app.core.deps import hash_key
+from app.core.models import Company, InventoryItem, Store, User
+from app.intelligence.market import pricing
+from app.intelligence.market.imei import load_tac, make_imei
 
 PARTNERS = {
     # slug: (name, stir, role, categories, district)
@@ -64,36 +61,8 @@ SLOW_UNITS = [  # > SLOW_STOCK_DAYS (the 8 units of v1), with their age in days
 LAPTOPS = {"MacBook Air M1", "MacBook Air M2", "TUF F15", "IdeaPad 3", "Latitude 5420", "Pavilion 15"}
 
 
-def load_tac() -> dict[str, dict[str, Any]]:
-    """TAC (first 8 IMEI digits) → {brand, model, storage_options}. Demo table, not licensed data."""
-    out = {}
-    with open(DATA_DIR / "tac.csv", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            out[row["tac"]] = {"brand": row["brand"], "model": row["model"],
-                               "storage_options": [int(x) for x in row["storage_options"].split("|")]}
-    return out
-
-
-def luhn_digit(body: str) -> str:
-    """Luhn check digit for a 14-digit IMEI body."""
-    total = 0
-    for i, ch in enumerate(reversed(body)):
-        d = int(ch)
-        if i % 2 == 0:
-            d *= 2
-            if d > 9:
-                d -= 9
-        total += d
-    return str((10 - total % 10) % 10)
-
-
-def make_imei(tac: str, serial: int) -> str:
-    body = f"{tac}{serial:06d}"
-    return body + luhn_digit(body)
-
-
 def run(db: Session, companies: dict[str, Company], today: date) -> dict[str, int]:
-    from app.routers.auth import demo_key
+    from app.api.routers.auth import demo_key
     from app.seed import _company
 
     rng = random.Random(23)
@@ -114,19 +83,19 @@ def run(db: Session, companies: dict[str, Company], today: date) -> dict[str, in
         db.add(User(company_id=companies[slug].id, name=name, role=role, api_key=hash_key(demo_key(key))))
 
     # integrations: rows for every company; Chilonzor's Didox is connected (mock)
-    from app.services.integrations import ensure_rows
+    from app.channels.integrations import ensure_rows
 
     for c in db.scalars(select(Company)):
         ensure_rows(db, c)
     db.flush()
-    from app.models import Integration
+    from app.core.models import Integration
 
     didox = db.scalar(select(Integration).where(Integration.company_id == ch.id, Integration.kind == "didox"))
     didox.status = "connected"
     didox.details = {"mode": "mock", "account": "Chilonzor Phone Market (demo)"}
 
     # an incoming RFQ for Chilonzor from a peer shop (feeds the rfq_quote decision)
-    from app.models import Rfq
+    from app.core.models import Rfq
 
     peer = db.scalar(select(Company).where(Company.name == "Malika Mobile"))
     est = pricing.estimate(db, "phone", "Galaxy A54", "new", attrs={"storage_gb": 128}, brand="Samsung")
@@ -160,8 +129,8 @@ COLLATERAL = [
 
 def seed_lender(db: Session, bank: Company, borrower: Company, today: date) -> int:
     """Demo Lizing Bank: ~10 collateral items (one breach, one watch) and one submitted application."""
-    from app.models import Collateral
-    from app.services import lender
+    from app.core.models import Collateral
+    from app.intelligence.advisor import lender
 
     app = lender.submit_application(db, borrower, {
         "lender_id": bank.id, "product": "business_loan", "principal_uzs": 150_000_000, "months": 24,

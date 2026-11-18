@@ -17,12 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 
-from app import errors
-from app.config import settings
-from app.logging_setup import setup_logging
-from app.routers import ROUTERS
-from app.services import workers
-from app.services.events import bus
+from app.api.routers import ROUTERS
+from app.core import errors, workers
+from app.core.config import settings
+from app.core.events import bus
+from app.core.logging_setup import setup_logging
 
 log = logging.getLogger("bozorpilot")
 
@@ -32,22 +31,22 @@ def _start_workers() -> list[asyncio.Task]:
     tasks: list[asyncio.Task] = []
     if settings.WORKERS_TELEGRAM:
         if settings.telegram_configured:
-            from app.services import telegram_ingest
+            from app.data_pipeline import telegram_ingest
 
             tasks.append(asyncio.create_task(workers.supervise("telegram", telegram_ingest.run_listener)))
         else:
             workers.set_status("telegram", "not_configured", "TG_API_ID/TG_API_HASH not set")
     if settings.WORKERS_EXTRACTOR:
-        from app.services import extractor
+        from app.data_pipeline import extractor
 
         tasks.append(asyncio.create_task(workers.supervise("extractor", extractor.run_loop)))
     if settings.WORKERS_DECISIONS:
-        from app.services import decisions
+        from app.intelligence.books import decisions
 
         tasks.append(asyncio.create_task(workers.supervise("decisions", decisions.run_loop)))
     if settings.BOT_ENABLED:
         if settings.TG_BOT_TOKEN:
-            from app.services import bot
+            from app.channels import bot
 
             tasks.append(asyncio.create_task(workers.supervise("bot", bot.run_bot)))
         else:
@@ -61,10 +60,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     bus.bind_loop(asyncio.get_running_loop())
     if settings.AUTO_MIGRATE:
         try:
-            from app import db
+            from app.core import db
 
             await asyncio.to_thread(db.migrate)
-            from app.services.telegram_ingest import sync_sources_from_yaml
+            from app.data_pipeline.sources import sync_sources_from_yaml
 
             await asyncio.to_thread(sync_sources_from_yaml)
         except Exception:

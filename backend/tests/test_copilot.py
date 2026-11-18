@@ -4,8 +4,9 @@ import re
 
 import pytest
 
+from app.core import llm
+from app.intelligence.advisor import copilot
 from app.main import app
-from app.services import copilot, llm
 
 CASES = [
     ("iPhone 13 128 qancha turadi?", None, "price", {"price_range", "comparables"}),

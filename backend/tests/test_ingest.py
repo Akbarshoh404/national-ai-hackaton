@@ -4,13 +4,15 @@ from datetime import timedelta
 
 import pytest
 
-from app import db as dbm
-from app.db import utcnow
-from app.models import Alert, Listing, RawPost, Source
-from app.services import extractor, llm, pricing
-from app.services.events import Event, bus
-from app.services.sse import visible
-from app.services.telegram_ingest import is_offer, save_post, strip_pii
+from app.core import db as dbm
+from app.core import llm
+from app.core.db import utcnow
+from app.core.events import Event, bus
+from app.core.models import Alert, Listing, RawPost, Source
+from app.core.sse import visible
+from app.data_pipeline import extractor
+from app.data_pipeline.telegram_ingest import is_offer, save_post, strip_pii
+from app.intelligence.market import pricing
 
 
 @pytest.mark.parametrize("raw,clean", [

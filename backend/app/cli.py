@@ -10,20 +10,21 @@ import asyncio
 import json
 import sys
 
-from app.config import settings
-from app.logging_setup import setup_logging
+from app.core.config import settings
+from app.core.logging_setup import setup_logging
 
 
 def cmd_init_db(_: argparse.Namespace) -> None:
-    from app import db
-    from app.services.telegram_ingest import sync_sources_from_yaml
+    from app.core import db
+    from app.data_pipeline.sources import sync_sources_from_yaml
 
     db.migrate()
     print(f"database ready; {sync_sources_from_yaml()} new sources from sources.yaml")
 
 
 def cmd_seed(args: argparse.Namespace) -> None:
-    from app import db, seed
+    from app import seed
+    from app.core import db
 
     if not args.reset:
         db.migrate()
@@ -63,14 +64,15 @@ def cmd_tg_resolve(_: argparse.Namespace) -> None:
     _require_tg()
     from telethon.tl.functions.contacts import SearchRequest
 
-    from app.services import telegram_ingest as tg
+    from app.data_pipeline import sources
+    from app.data_pipeline import telegram_ingest as tg
 
     async def run() -> None:
         client = tg.make_client()
         await client.connect()
         if not await client.is_user_authorized():
             sys.exit("Not logged in. Run `python -m app.cli tg-login` first.")
-        entries = tg.load_sources_yaml()
+        entries = sources.load_sources_yaml()
         for e in entries:
             if str(e.get("username", "TODO")).upper() != "TODO":
                 continue
@@ -91,25 +93,26 @@ def cmd_tg_resolve(_: argparse.Namespace) -> None:
             elif choice:
                 e["username"] = choice.lstrip("@")
             if str(e.get("username")).upper() != "TODO":
-                tg.write_sources_yaml(entries)
+                sources.write_sources_yaml(entries)
                 print(f"  saved @{e['username']}")
         await client.disconnect()
-        print(f"\n{tg.sync_sources_from_yaml()} sources added to the database")
+        print(f"\n{sources.sync_sources_from_yaml()} sources added to the database")
 
     asyncio.run(run())
 
 
 def cmd_tg_history(args: argparse.Namespace) -> None:
     _require_tg()
-    from app.services import telegram_ingest as tg
+    from app.data_pipeline import sources
+    from app.data_pipeline import telegram_ingest as tg
 
-    tg.sync_sources_from_yaml()
+    sources.sync_sources_from_yaml()
     print(json.dumps(asyncio.run(tg.run_history(args.limit)), indent=2))
 
 
 def cmd_extract_once(args: argparse.Namespace) -> None:
-    from app import db
-    from app.services import extractor
+    from app.core import db
+    from app.data_pipeline import extractor
 
     with db.SessionLocal() as s:
         print(json.dumps(extractor.run_once(s, args.limit)))
