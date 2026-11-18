@@ -9,6 +9,7 @@ import { Tile, TileHeader } from "@/components/raft/tile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Select } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { useT } from "@/i18n";
 import { ApiError } from "@/lib/api/client";
@@ -40,13 +41,7 @@ function CreditCalculator({ open, onOpenChange }: { open: boolean; onOpenChange:
             <label className="field-label" htmlFor="calc-product">
               Mahsulot
             </label>
-            <select id="calc-product" className="input" value={product} onChange={(e) => setProduct(e.target.value)}>
-              {PRODUCTS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+            <Select id="calc-product" value={product} onValueChange={setProduct} options={PRODUCTS} />
           </div>
           <div>
             <label className="field-label" htmlFor="calc-amount">

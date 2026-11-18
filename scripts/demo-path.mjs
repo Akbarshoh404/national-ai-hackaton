@@ -130,7 +130,9 @@ await step("Extras: palette, copilot and chat chips", async () => {
   await click("Muddatni 36 oyga o‘zgartirish");
   await see("36 oy");
   await click("Jadvalni Excel’ga yuklash");
-  await see("kredit-jadvali-36-oy.csv");
+  await see("kredit-jadvali-36-oy.xlsx");
+  const [schedule] = await Promise.all([page.waitForEvent("download"), click("kredit-jadvali-36-oy.xlsx")]);
+  if (schedule.suggestedFilename() !== "kredit-jadvali-36-oy.xlsx") throw new Error("schedule is not an xlsx file");
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("techopt");
   await page.getByRole("option", { name: /TechOpt Wholesale/ }).first().waitFor({ timeout: 5000 });

@@ -407,7 +407,13 @@ export const Block = z.discriminatedUnion("type", [
     schedule: z.array(ScheduleRow),
     total_interest: z.number(),
   }),
-  z.object({ type: z.literal("file"), name: z.string(), content: z.string(), note: z.string() }),
+  z.object({
+    type: z.literal("file"),
+    name: z.string(),
+    content: z.string(),
+    note: z.string(),
+    rows: z.array(z.array(z.union([z.string(), z.number()]))).optional(),
+  }),
 ]);
 export type Block = z.infer<typeof Block>;
 

@@ -2,7 +2,6 @@
 
 import { getAccount } from "@/lib/auth";
 import { dateLong, DEMO_TODAY, mln, shortSoum, usd } from "@/lib/format";
-import { toCsv } from "@/lib/utils";
 import { ApiError } from "../client";
 import type {
   ActivityRow,
@@ -856,12 +855,12 @@ const routes: [string, RegExp, Handler][] = [
     /^\/advisor\/credit\/export$/,
     ({ body }) => {
       const c = annuity(Number(body.amount ?? 300_000_000), Number(body.months ?? 24), 24);
-      const content = toCsv([
-        ["Oy", "Asosiy qarz", "Foiz", "Qoldiq"],
+      const rows = [
+        ["Oy", "Asosiy qarz, so‘m", "Foiz, so‘m", "Qoldiq, so‘m"],
         ...c.schedule.map((r) => [r.month, Math.round(r.principal), Math.round(r.interest), Math.round(r.balance)]),
-      ]);
+      ];
       const answer: ChatAnswer = {
-        blocks: [{ type: "file", name: `kredit-jadvali-${c.months}-oy.csv`, content, note: "Excel’da ochiladi" } satisfies Block],
+        blocks: [{ type: "file", name: `kredit-jadvali-${c.months}-oy.xlsx`, content: "", rows, note: "Excel fayli" } satisfies Block],
         chips: [],
       };
       return answer;

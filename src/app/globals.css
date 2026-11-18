@@ -368,6 +368,10 @@
   .data-table td:last-child {
     padding-right: 0;
   }
+  .data-table .check-cell {
+    width: 32px;
+    vertical-align: middle;
+  }
   .data-table .r {
     text-align: right;
     font-variant-numeric: tabular-nums;

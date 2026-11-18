@@ -6,12 +6,14 @@ import { Page, useShell } from "@/components/raft/shell";
 import { Async, EmptyState, Skeleton, SkeletonLines } from "@/components/raft/states";
 import { Delta, KpiStrip, Tile, TileHeader } from "@/components/raft/tile";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { ApiError } from "@/lib/api/client";
 import { useApplications, useCollateral, useCollateralSummary, useDecideApplication, useMarketReport, useValuation } from "@/lib/api/hooks";
 import type { Collateral, LoanApplication } from "@/lib/api/schemas";
 import { linePath } from "@/components/charts/base";
 import { pct, pctSigned, shortSoum, usd } from "@/lib/format";
-import { cn, downloadText, toCsv } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { downloadXlsx } from "@/lib/xlsx";
 
 const COLLATERAL_STATUS: Record<Collateral["status"], { text: string; tone: string }> = {
   normal: { text: "Normal", tone: "text-text-2" },
@@ -284,14 +286,9 @@ function ReportTile() {
             <label className="field-label mb-1 text-[12px]" htmlFor="report-district">
               Tuman
             </label>
-            <select id="report-district" className="input" value={district} onChange={(e) => setDistrict(e.target.value)}>
-              <option value="all">Hammasi</option>
-              {districts.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
+            <Select id="report-district" value={district} onValueChange={setDistrict} options={[{ value: "all", label: "Hammasi" }, ...districts.map((d) => ({ value: d, label: d }))]} />
           </div>
-          <Button onClick={() => downloadText("raft-bozor-hisoboti.csv", toCsv([["Model", "Tuman", "Mediana", "7 kun, %", "E’lonlar"], ...visible.map((r) => [r.model, r.district, r.median, r.change_7d, r.listings])]))}>Excel’ga yuklash</Button>
+          <Button onClick={() => downloadXlsx("raft-bozor-hisoboti.xlsx", "Bozor hisoboti", [["Model", "Tuman", "Mediana, $", "7 kun, %", "E’lonlar"], ...visible.map((r) => [r.model, r.district, r.median, r.change_7d, r.listings])])}>Excel’ga yuklash</Button>
         </div>
       </div>
       <div className="mt-3 overflow-x-auto">

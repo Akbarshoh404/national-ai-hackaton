@@ -49,13 +49,13 @@ Each entry records a choice made while building, and why.
 - **Live feed** moves only when the presenter presses "Keyingi e’lonni o‘qish", because section 8 forbids fake live activity.
 - **The IMEI scan button** fills a sample IMEI. There is no camera flow.
 - **Copilot answers on fixtures are rule-based**, keyed on words such as kredit, budjet, savdo, ombor or a model name.
-- **Excel and 1C exports are CSV files** that Excel opens. On fixtures, uploaded `.xlsx` and 1C files show sample columns with a warning; CSV files are really parsed.
+- **Excel exports are real `.xlsx` files**, written by `src/lib/xlsx.ts` with no added dependency. The 1C export stays CSV. On fixtures, uploaded `.xlsx` and 1C files show sample columns with a warning; CSV files are really parsed.
+- **Dropdowns use a restyled Radix Select**, because native option lists cannot follow the design system.
 
 ## Cut, following the prompt's cut order
 
 - Russian and English copy beyond the shell and Bugun.
 - The customizable widget edit mode on Bugun, so `dnd-kit` is not installed.
-- Real xlsx generation for the market report (CSV instead).
 - Voice input returns 503 on fixtures and falls back to typing, as the brief describes.
 
 ## Accessibility check

@@ -3,6 +3,7 @@
 import { Upload } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { useUploadCommit, useUploadPreview } from "@/lib/api/hooks";
 import type { UploadPreview } from "@/lib/api/schemas";
 import { cn } from "@/lib/utils";
@@ -140,13 +141,7 @@ export function UploadPanel({ onClose }: { onClose: () => void }) {
                       <label htmlFor={`map-${c.source}`} className="mb-1 block">
                         {c.source}
                       </label>
-                      <select id={`map-${c.source}`} className="input h-11 font-normal" value={mapping[c.source] ?? "skip"} onChange={(e) => setMapping((m) => ({ ...m, [c.source]: e.target.value }))}>
-                        {data.targets.map((t) => (
-                          <option key={t.value} value={t.value}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
+                      <Select id={`map-${c.source}`} className="font-normal" value={mapping[c.source] ?? "skip"} onValueChange={(value) => setMapping((m) => ({ ...m, [c.source]: value }))} options={data.targets} />
                     </th>
                   ))}
                 </tr>

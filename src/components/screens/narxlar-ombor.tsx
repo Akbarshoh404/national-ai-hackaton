@@ -9,6 +9,8 @@ import { KpiStrip, Tile } from "@/components/raft/tile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select } from "@/components/ui/select";
+import { downloadXlsx } from "@/lib/xlsx";
 import { useListOnExchange, useReprice, useStockSummary, useStockUnits } from "@/lib/api/hooks";
 import type { Rating, StockUnit } from "@/lib/api/schemas";
 import { daysLabel, pctSigned, usd, usdSigned } from "@/lib/format";
@@ -21,7 +23,8 @@ function exportUnits(units: StockUnit[], format: "xlsx" | "csv" | "1c") {
     ["Model", "Xususiyatlar", "Do‘kon", "Narx", "Bozor", "Tannarx", "Omborda kun", "Baho", "Tavsiya"],
     ...units.map((u) => [u.model, u.attrs, u.store, u.list_price, u.market_price ?? "", u.cost, u.days_in_stock, RATING[u.rating].label, u.suggested_price ?? ""]),
   ];
-  downloadText(`raft-ombor${format === "1c" ? "-1c" : format === "xlsx" ? "-excel" : ""}.csv`, toCsv(rows));
+  if (format === "xlsx") downloadXlsx("raft-ombor.xlsx", "Ombor", rows);
+  else downloadText(`raft-ombor${format === "1c" ? "-1c" : ""}.csv`, toCsv(rows));
 }
 
 function SelectField({ id, label, value, onChange, options }: { id: string; label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
@@ -30,13 +33,7 @@ function SelectField({ id, label, value, onChange, options }: { id: string; labe
       <label className="field-label mb-1 text-[12px]" htmlFor={id}>
         {label}
       </label>
-      <select id={id} className="input h-11" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <Select id={id} value={value} onValueChange={onChange} options={options} />
     </div>
   );
 }
@@ -159,8 +156,9 @@ export function OmborView() {
               <table className="data-table min-w-[1020px]">
                 <thead>
                   <tr>
-                    <th className="w-8">
+                    <th className="check-cell">
                       <Checkbox
+                        className="flex"
                         aria-label="Barcha qatorlarni tanlash"
                         checked={visibleSelected === 0 ? false : visibleSelected === visibleIds.length ? true : "indeterminate"}
                         onCheckedChange={(v) =>
@@ -191,8 +189,8 @@ export function OmborView() {
                     const canApply = u.suggested_price !== null && u.suggested_price !== u.list_price;
                     return (
                       <tr key={u.id} className={cn(selected.has(u.id) && "bg-accent-soft/60")}>
-                        <td>
-                          <Checkbox aria-label={`${u.model} tanlash`} checked={selected.has(u.id)} onCheckedChange={(v) => toggle(u.id, v === true)} />
+                        <td className="check-cell">
+                          <Checkbox className="flex" aria-label={`${u.model} tanlash`} checked={selected.has(u.id)} onCheckedChange={(v) => toggle(u.id, v === true)} />
                         </td>
                         <td>
                           <div className="font-medium">{u.model}</div>
@@ -247,9 +245,9 @@ export function OmborView() {
             <PopoverContent align="end" side="top" className="w-[200px]">
               {(
                 [
-                  ["xlsx", "Excel uchun"],
-                  ["csv", "CSV"],
-                  ["1c", "1C uchun"],
+                  ["xlsx", "Excel (.xlsx)"],
+                  ["csv", "CSV (.csv)"],
+                  ["1c", "1C uchun (.csv)"],
                 ] as const
               ).map(([format, label]) => (
                 <button key={format} type="button" className="flex min-h-11 w-full items-center rounded-[12px] px-2 text-left text-[13px] hover:bg-[var(--nested)]" onClick={() => exportUnits(chosen.length ? chosen : rows, format)}>

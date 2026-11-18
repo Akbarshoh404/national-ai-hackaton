@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { Block } from "@/lib/api/schemas";
 import { mln, usd } from "@/lib/format";
 import { cn, downloadText } from "@/lib/utils";
+import { downloadXlsx } from "@/lib/xlsx";
 import { Swatch } from "./tile";
 
 export function BlockView({ block, compact }: { block: Block; compact?: boolean }) {
@@ -149,7 +150,7 @@ export function BlockView({ block, compact }: { block: Block; compact?: boolean 
     case "file":
       return (
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => downloadText(block.name, block.content)}>
+          <Button onClick={() => (block.rows ? downloadXlsx(block.name, "Jadval", block.rows) : downloadText(block.name, block.content))}>
             <Download size={16} strokeWidth={1.75} aria-hidden />
             {block.name}
           </Button>
