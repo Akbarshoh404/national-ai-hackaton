@@ -36,7 +36,7 @@ export function LoginScreen() {
               >
                 <span className="text-[14px] font-semibold">{account.name}</span>
                 <span className="t-cap self-center text-right">{account.role}</span>
-                <span className="col-span-2 mt-0.5 text-[13px] text-text-2">{account.about}</span>
+                <span className="col-span-2 mt-1 text-[13px] text-text-2">{account.about}</span>
               </button>
             </li>
           ))}

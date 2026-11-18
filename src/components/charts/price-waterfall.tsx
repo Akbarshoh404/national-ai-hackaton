@@ -90,7 +90,7 @@ export function PriceWaterfall({ steps }: { steps: PriceStep[] }) {
           </svg>
           <div className="grid text-center text-[11px] leading-[14px] text-text-2" style={{ marginLeft: LEFT, gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
             {steps.map((s) => (
-              <div key={s.label} className="px-0.5">
+              <div key={s.label} className="px-1">
                 {s.label}
                 {s.sub ? <div>{s.sub}</div> : null}
               </div>

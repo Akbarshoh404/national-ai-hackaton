@@ -132,7 +132,7 @@ function ConsentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
           ))}
         </dl>
         <label className="mt-4 flex min-h-11 items-start gap-3 text-[14px]">
-          <span className="pt-0.5">
+          <span className="pt-1">
             <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} aria-label="Ma’lumotlarni bankka berishga roziman" />
           </span>
           Kitoblarim va ombor ma’lumotlarini shu ariza uchun Demo Bank’ka berishga roziman.
@@ -186,7 +186,7 @@ function ReadinessContent({ data }: { data: Readiness }) {
       <h3 className="mt-5 text-[13px] text-text-2">Qanday oshirish</h3>
       <ul className="mt-1">
         {data.tips.map((t) => (
-          <li key={t.text} className="flex items-baseline justify-between gap-2 py-1.5 text-[13px]">
+          <li key={t.text} className="flex items-baseline justify-between gap-2 py-2 text-[13px]">
             <span>{t.text}</span>
             <span className="mono shrink-0 text-[12px] text-success">+{t.points} ball</span>
           </li>

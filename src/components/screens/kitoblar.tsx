@@ -70,7 +70,7 @@ function FlagDetail({ flag, index, total, audit, onResolved }: { flag: AuditFlag
                   </div>
                 ))}
               </dl>
-              <p className="mono mt-4 flex justify-between rounded-[8px] border border-danger px-2 py-1 text-danger">
+              <p className="mono mt-4 flex justify-between rounded-[12px] border border-danger px-2 py-1 text-danger">
                 <span className="font-medium text-text">Jami</span>
                 {flag.invoice.total}
               </p>
@@ -165,7 +165,7 @@ function TekshiruvView() {
       <Tile className="flex min-h-[640px] flex-col overflow-hidden p-0 max-xl:min-h-0">
         <div className="p-5 pb-3">
           <h2 className="text-[17px] leading-6 font-semibold">{query.data ? (flags.length ? `${flags.length} ta yozuv tekshiruv kutmoqda` : "Tekshiruv yakunlandi") : "Tekshiruv"}</h2>
-          {query.data ? <p className="mt-0.5 text-[13px] text-text-2">{query.data.total_records} ta yozuvdan · noyabr · Didox va BILLZ’dan</p> : null}
+          {query.data ? <p className="mt-1 text-[13px] text-text-2">{query.data.total_records} ta yozuvdan · noyabr · Didox va BILLZ’dan</p> : null}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button disabled={sync.isPending} onClick={() => sync.mutate(undefined, { onSuccess: (r) => r.new_flags && setSelectedId("f-2231") })}>
               {sync.isPending ? "Sinxronlanmoqda" : "Didox’dan sinxronlash"}

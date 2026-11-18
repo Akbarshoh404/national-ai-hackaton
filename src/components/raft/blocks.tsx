@@ -46,7 +46,7 @@ export function BlockView({ block, compact }: { block: Block; compact?: boolean 
           <h3 className="text-[13px] font-semibold">{block.title}</h3>
           <ul className="mt-1">
             {block.items.map((item, i) => (
-              <li key={i} className="flex items-baseline justify-between gap-3 py-1.5 text-[13px]">
+              <li key={i} className="flex items-baseline justify-between gap-3 py-2 text-[13px]">
                 <span className="min-w-0">
                   <span className="font-medium">{item.title}</span> <span className="text-text-2">{item.meta}</span>
                 </span>
@@ -116,7 +116,7 @@ export function BlockView({ block, compact }: { block: Block; compact?: boolean 
       return (
         <div>
           <h3 className="text-[13px] font-semibold">{block.title}</h3>
-          <ol className="mt-2 flex flex-col gap-1.5 text-[14px]">
+          <ol className="mt-2 flex flex-col gap-2 text-[14px]">
             {block.items.map((item, i) => (
               <li key={item} className="flex gap-2">
                 <span className="mono text-[13px] text-muted">{i + 1}</span>
@@ -132,11 +132,11 @@ export function BlockView({ block, compact }: { block: Block; compact?: boolean 
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-[13px] font-semibold">To‘lov jadvali</h3>
             <ul className="flex gap-3 text-[12px] text-text-2">
-              <li className="flex items-center gap-1.5">
+              <li className="flex items-center gap-2">
                 <Swatch color="var(--chart-s1)" />
                 Asosiy qarz
               </li>
-              <li className="flex items-center gap-1.5">
+              <li className="flex items-center gap-2">
                 <Swatch color="var(--chart-s3)" />
                 Foiz
               </li>

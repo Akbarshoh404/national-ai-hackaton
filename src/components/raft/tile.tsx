@@ -10,9 +10,9 @@ export function TileHeader({ title, sub, right, className }: { title: ReactNode;
     <header className={cn("flex items-start justify-between gap-4", className)}>
       <div className="min-w-0">
         <h2 className="t-title">{title}</h2>
-        {sub ? <p className="mt-0.5 text-[13px] leading-[18px] text-text-2">{sub}</p> : null}
+        {sub ? <p className="mt-1 text-[13px] leading-[18px] text-text-2">{sub}</p> : null}
       </div>
-      {right ? <div className="t-mono-cap shrink-0 pt-0.5">{right}</div> : null}
+      {right ? <div className="t-mono-cap shrink-0 pt-1">{right}</div> : null}
     </header>
   );
 }

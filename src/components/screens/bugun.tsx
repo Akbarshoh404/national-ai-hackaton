@@ -75,7 +75,7 @@ function DecisionTile() {
               <h3 className="text-[13px]">{t.nextDecisions}</h3>
               <ul className="mt-1">
                 {items.slice(1, 4).map((d, i) => (
-                  <li key={d.id} className={cn("flex items-baseline justify-between gap-3 py-2.5 text-[13px]", i > 0 && "border-t border-white/20")}>
+                  <li key={d.id} className={cn("flex items-baseline justify-between gap-3 py-2 text-[13px]", i > 0 && "border-t border-white/20")}>
                     <span className="min-w-0">{d.short}</span>
                     <span className="mono shrink-0 text-[12px]">{d.amount}</span>
                   </li>
@@ -121,14 +121,14 @@ function SourcingTile() {
           {(data) => (
             <ul>
               {data.items.slice(0, 3).map((f, i) => (
-                <li key={f.id} className={cn("py-2.5", i > 0 && "border-t border-[rgb(15_23_22/0.06)]")}>
+                <li key={f.id} className={cn("py-2", i > 0 && "border-t border-[rgb(15_23_22/0.06)]")}>
                   <div className="flex items-baseline justify-between gap-2 text-[13px]">
                     <span className="truncate-1 font-medium" title={f.title}>
                       {f.title.replace(/ 8\/256$/, "")}
                     </span>
                     <span className="mono shrink-0 text-[12px] font-medium text-success">{pct(f.diff_pct, 0)}</span>
                   </div>
-                  <div className="t-mono-cap mt-0.5 flex items-baseline justify-between gap-2">
+                  <div className="t-mono-cap mt-1 flex items-baseline justify-between gap-2">
                     <span className="truncate-1">
                       {usd(f.price)} · {t.market} {usd(f.market)}
                     </span>
@@ -193,7 +193,7 @@ function StockTile({ data }: { data: Dashboard["stock_health"] }) {
       <div className="mt-2">
         <TickGauge segments={segments} center={String(data.over)} caption={t.overpricedCaption} label={`${t.stock}: ${segments.map((s) => `${s.label} ${s.value}`).join(", ")}`} />
       </div>
-      <ul className="mt-auto flex flex-col gap-0.5 pt-2 text-[13px]">
+      <ul className="mt-auto flex flex-col gap-1 pt-2 text-[13px]">
         {segments.map((s) => (
           <li key={s.label} className="flex items-center gap-2">
             <Swatch color={s.color} />

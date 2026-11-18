@@ -113,12 +113,12 @@ export function BaholashView() {
               className="input mono h-14 pr-[100px] text-[15px]"
             />
             <div className="absolute top-1.5 right-1.5 flex gap-1">
-              <button type="button" className="icon-btn bg-[var(--nested)]" aria-label="Ovoz bilan kiritish" onClick={voice}>
+              <button type="button" className="icon-btn" aria-label="Ovoz bilan kiritish" onClick={voice}>
                 <Mic size={18} strokeWidth={1.75} aria-hidden />
               </button>
               <button
                 type="button"
-                className="icon-btn bg-[var(--nested)]"
+                className="icon-btn"
                 aria-label="Namuna IMEI’ni skanerlash"
                 onClick={() => {
                   setInput(SAMPLE_IMEI);
@@ -139,7 +139,7 @@ export function BaholashView() {
 
         <div className="panel mt-3 p-4" aria-live="polite">
           <p className="text-[15px] font-semibold">{detected.model}</p>
-          <p className="mt-0.5 text-[13px] text-text-2">{detected.detail}</p>
+          <p className="mt-1 text-[13px] text-text-2">{detected.detail}</p>
         </div>
 
         <fieldset className="mt-5">

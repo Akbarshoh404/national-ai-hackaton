@@ -62,7 +62,7 @@ function ApplicationPanel({ app, onDecide }: { app: LoanApplication; onDecide: (
           <h3 className="text-[15px] font-semibold">{app.borrower}</h3>
           <span className="t-mono-cap shrink-0">STIR {app.stir}</span>
         </div>
-        <dl className="mt-2 flex flex-col gap-1.5">
+        <dl className="mt-2 flex flex-col gap-2">
           {rows.map(([k, v, tone]) => (
             <div key={k} className="kv text-[13px]">
               <dt className="shrink-0">{k}</dt>
@@ -181,7 +181,7 @@ function ValuationTile() {
               ariaLabel={`Adolatli narx ${usd(v.fair)}, likvidatsiya ${usd(v.liquidation)}`}
             />
           </div>
-          <dl className="mt-3 flex flex-col gap-1.5">
+          <dl className="mt-3 flex flex-col gap-2">
             {[
               ["Oraliq (p25–p75)", `${usd(v.p25)} – ${usd(v.p75)}`, ""],
               ["Likvidatsiya qiymati", usd(v.liquidation), "text-warning"],
@@ -197,7 +197,7 @@ function ValuationTile() {
           <h3 className="mt-4 text-[13px] text-text-2">Eng yaqin e’lonlar</h3>
           <ul className="mt-1">
             {v.comparables.map((c) => (
-              <li key={c.title} className="flex items-baseline justify-between gap-3 py-1.5">
+              <li key={c.title} className="flex items-baseline justify-between gap-3 py-2">
                 <span className="min-w-0">
                   <span className="block truncate text-[13px]">{c.title}</span>
                   <span className="t-mono-cap">{c.meta}</span>

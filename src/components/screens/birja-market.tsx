@@ -55,7 +55,7 @@ function LiveFeed({ radar }: { radar: Radar }) {
             </Link>{" "}
             o‘qidi · {num(post.latency_s, 1)} s
           </p>
-          <dl className="mt-2 flex flex-col gap-1.5">
+          <dl className="mt-2 flex flex-col gap-2">
             {post.fields.map((f) => (
               <div key={f.label} className="kv text-[13px]">
                 <dt>{f.label}</dt>
