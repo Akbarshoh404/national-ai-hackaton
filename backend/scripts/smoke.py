@@ -33,6 +33,7 @@ def key(slug: str) -> dict[str, str]:
 
 
 def main() -> None:
+    call("GET", "/ping")
     call("GET", "/health")
     call("GET", "/meta")
     ch, to, sa, yr = (key(s) for s in ("chilonzor-phone", "techopt", "sergeli-avto", "yunusobod-realty"))

@@ -22,20 +22,26 @@ from app.core import errors, workers
 from app.core.config import settings
 from app.core.events import bus
 from app.core.logging_setup import setup_logging
+from app.core.memory import rss_mb
 
 log = logging.getLogger("bozorpilot")
 
 
 def _start_workers() -> list[asyncio.Task]:
-    """Start enabled background workers as supervised tasks."""
+    """Start enabled background workers as supervised tasks.
+
+    Missing credentials never crash startup: the worker stays off, its status says why, and a warning is logged.
+    """
     tasks: list[asyncio.Task] = []
     if settings.WORKERS_TELEGRAM:
-        if settings.telegram_configured:
+        if not settings.telegram_configured:
+            _off("telegram", "TG_API_ID/TG_API_HASH not set")
+        elif not settings.TG_SESSION:
+            _off("telegram", "TG_SESSION not set (run `python -m app.cli tg-login` and copy the StringSession)")
+        else:
             from app.data_pipeline import telegram_ingest
 
             tasks.append(asyncio.create_task(workers.supervise("telegram", telegram_ingest.run_listener)))
-        else:
-            workers.set_status("telegram", "not_configured", "TG_API_ID/TG_API_HASH not set")
     if settings.WORKERS_EXTRACTOR:
         from app.data_pipeline import extractor
 
@@ -50,8 +56,15 @@ def _start_workers() -> list[asyncio.Task]:
 
             tasks.append(asyncio.create_task(workers.supervise("bot", bot.run_bot)))
         else:
-            workers.set_status("bot", "not_configured", "TG_BOT_TOKEN not set")
+            _off("bot", "TG_BOT_TOKEN not set")
+    if not settings.llm_configured:
+        log.warning("GEMINI_API_KEY not set: LLM features use deterministic fallbacks (voice/OCR return 503)")
     return tasks
+
+
+def _off(worker: str, reason: str) -> None:
+    workers.set_status(worker, "not_configured", reason)
+    log.warning("%s worker off: %s", worker, reason)
 
 
 @asynccontextmanager
@@ -69,7 +82,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         except Exception:
             log.exception("startup migration failed")
     tasks = _start_workers()
-    log.info("BozorPilot API started (%d workers)", len(tasks))
+    log.info("BozorPilot API started (%d workers, port %s, memory %s MB)", len(tasks), settings.PORT,
+             rss_mb() or "n/a")
     try:
         yield
     finally:
@@ -154,3 +168,9 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+if __name__ == "__main__":  # `python -m app.main` — honours $PORT like the Docker CMD
+    import uvicorn
+
+    uvicorn.run("app.main:app", host=settings.HOST, port=settings.PORT, workers=1)

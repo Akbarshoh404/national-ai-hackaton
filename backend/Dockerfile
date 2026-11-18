@@ -14,5 +14,6 @@ RUN pip install -r requirements.txt && pip install "weasyprint>=62"
 COPY . .
 
 EXPOSE 8000
-# Railway/Render set $PORT. Migrations run on startup (AUTO_MIGRATE=true).
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]
+# Render (and most hosts) inject $PORT. One uvicorn worker (the default): the Telegram listener, the bot and the
+# in-process caches must exist exactly once. Migrations run on startup (AUTO_MIGRATE=true).
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

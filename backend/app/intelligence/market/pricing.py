@@ -15,12 +15,14 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from app.core import fx
 from app.core.catalog import norm_model, normalize_district
@@ -96,6 +98,7 @@ def cpu_class(cpu: Any) -> str | None:
 
 def load_frame(db: Session, category: str) -> pd.DataFrame:
     """Comparable listings for `category` (cached for PRICE_CACHE_TTL_S)."""
+    import pandas as pd
     now = time.monotonic()
     with _lock:
         hit = _cache.get(category)
@@ -261,6 +264,7 @@ _SAMPLE_COLS = ["id", "brand", "model", "price_uzs", "price_usd", "condition", "
 
 def _nn(v: Any) -> Any:
     """pandas missing values (NaN/NaT/None) → None."""
+    import pandas as pd
     return None if not isinstance(v, dict) and pd.isna(v) else v
 
 

@@ -80,7 +80,7 @@ def admin_update_source(source_id: int, body: SourcePatch, db: DbDep) -> SourceO
 @router.post("/telegram/history", response_model=JobStarted, status_code=202)
 async def admin_telegram_history(limit: int | None = Query(None, ge=1, le=20000)) -> JobStarted:
     """Import channel history in the background (FloodWait-aware)."""
-    if not settings.telegram_configured:
+    if not (settings.telegram_configured and settings.TG_SESSION):
         raise AppError("telegram_not_configured", "Set TG_API_ID, TG_API_HASH and TG_SESSION", 503)
 
     async def job() -> None:

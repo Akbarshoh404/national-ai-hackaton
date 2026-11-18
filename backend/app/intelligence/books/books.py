@@ -11,12 +11,14 @@ import json
 import re
 import time
 from datetime import date, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from app.core import alerts, llm
 from app.core.catalog import (
@@ -218,6 +220,7 @@ def detect_mapping(columns: list[str]) -> dict[str, dict[str, Any]]:
 
 
 def _read_frame(content: bytes, filename: str) -> pd.DataFrame:
+    import pandas as pd
     name = (filename or "").lower()
     try:
         if name.endswith((".xlsx", ".xls")):
@@ -270,6 +273,7 @@ def _clean(v: Any) -> Any:
 
 
 def _row(rec: dict[str, Any]) -> dict[str, Any]:
+    import pandas as pd
     raw_date = _clean(rec.get("date"))
     iso = isinstance(raw_date, str) and re.match(r"^\d{4}-\d{2}-\d{2}", raw_date)
     d = pd.to_datetime(raw_date, dayfirst=not iso, errors="coerce")
@@ -331,6 +335,7 @@ printed. Unknown values are null. Never invent items.""").replace("CATEGORIES", 
 
 def extract_invoice(image: bytes, mime_type: str) -> list[dict[str, Any]]:
     """Vision OCR of an invoice → transaction rows (not saved). 503 without an LLM key."""
+    import pandas as pd
     if not llm.available():
         raise AppError("llm_unavailable", "Invoice OCR needs GEMINI_API_KEY", 503)
     data = llm.vision_json(image, mime_type, INVOICE_PROMPT)
@@ -367,6 +372,7 @@ AUDIT_CACHE_TTL_S = 60.0
 
 
 def _frame(db: Session, company_id: int, since: date | None = None) -> pd.DataFrame:
+    import pandas as pd
     q = select(Transaction).where(Transaction.company_id == company_id)
     if since:
         q = q.where(Transaction.date >= since)
@@ -394,6 +400,7 @@ def _flag(type_: str, severity: str, message: str, ids: list[int], amount: float
 
 def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]]:
     """Run all 7 checks. Returns flags with transaction ids and money at risk."""
+    import pandas as pd
     df = _frame(db, company_id)
     if df.empty:
         return []

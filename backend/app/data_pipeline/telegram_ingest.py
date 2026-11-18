@@ -85,11 +85,20 @@ def save_post(db: Session, source: str, msg_id: int, posted_at: datetime, text: 
 # Telethon client                                                               #
 # --------------------------------------------------------------------------- #
 
-def make_client() -> Any:
+def make_client(allow_file: bool = False) -> Any:
+    """Telethon client from the `TG_SESSION` StringSession (no file needed — works on read-only/ephemeral disks).
+
+    Only the CLI passes `allow_file=True` to fall back to the local `TG_SESSION_FILE` created by `tg-login`.
+    """
     from telethon import TelegramClient
     from telethon.sessions import StringSession
 
-    session: Any = StringSession(settings.TG_SESSION) if settings.TG_SESSION else settings.TG_SESSION_FILE
+    if settings.TG_SESSION:
+        session: Any = StringSession(settings.TG_SESSION)
+    elif allow_file:
+        session = settings.TG_SESSION_FILE
+    else:
+        raise RuntimeError("TG_SESSION is not set; run `python -m app.cli tg-login` and set the printed value")
     return TelegramClient(session, settings.TG_API_ID, settings.TG_API_HASH)
 
 
@@ -151,7 +160,7 @@ def _save_sync(source: str, msg_id: int, date: datetime, text: str, has_photo: b
                 db.commit()
 
 
-async def run_history(limit: int | None = None) -> dict[str, int]:
+async def run_history(limit: int | None = None, allow_file: bool = False) -> dict[str, int]:
     """Import recent history for every active source (FloodWait-aware, 3 s pause between sources).
 
     Returns the number of messages scanned per source (saving is idempotent).
@@ -162,7 +171,7 @@ async def run_history(limit: int | None = None) -> dict[str, int]:
     client = _client
     own = client is None
     if own:
-        client = make_client()
+        client = make_client(allow_file)
         await client.connect()
         if not await client.is_user_authorized():
             await client.disconnect()

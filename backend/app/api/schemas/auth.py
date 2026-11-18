@@ -164,6 +164,10 @@ class ComponentStatus(BaseModel):
     detail: str | None = None
 
 
+class PingOut(BaseModel):
+    ok: bool = True
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     db: ComponentStatus

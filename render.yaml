@@ -1,0 +1,52 @@
+# Render Blueprint — free Docker web service for the BozorPilot backend.
+# Database: Neon (free PostgreSQL), set DATABASE_URL in the dashboard. See docs/DEPLOY.md.
+services:
+  - type: web
+    name: bozorpilot-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/ping
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      # --- secrets: set in the Render dashboard (never committed) ---
+      - key: DATABASE_URL          # Neon connection string, ...?sslmode=require
+        sync: false
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: CORS_ORIGINS          # e.g. https://bozorpilot.vercel.app
+        sync: false
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: TG_SESSION            # StringSession from `python -m app.cli tg-login`; one backend per session!
+        sync: false
+      - key: TG_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # --- plain settings ---
+      - key: DEMO_MODE
+        value: "true"
+      - key: AUTO_MIGRATE
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: WORKERS_TELEGRAM
+        value: "true"
+      - key: WORKERS_EXTRACTOR
+        value: "true"
+      - key: WORKERS_DECISIONS
+        value: "true"
+      - key: BOT_ENABLED
+        value: "true"
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: USD_UZS
+        value: "12700"

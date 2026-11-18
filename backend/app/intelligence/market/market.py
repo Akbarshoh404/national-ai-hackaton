@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    pass
 
 from app.core import alerts, fx
 from app.core.catalog import DISTRICTS, norm_model, normalize_district
@@ -106,6 +108,7 @@ def sourcing_radar(db: Session, categories: list[str], min_discount_pct: float, 
 
 def trend(db: Session, category: str, model: str | None, days: int) -> list[dict[str, Any]]:
     """Weekly median price and listing count."""
+    import pandas as pd
     since = utcnow() - timedelta(days=days)
     q = select(Listing.posted_at, Listing.price_uzs).where(Listing.category == category,
                                                            Listing.is_duplicate.is_(False),

@@ -270,3 +270,60 @@ Choices made while building, where the spec left room. Grouped by area.
     its text is parsed and priced.
   - A voice note is transcribed and priced (it needs a Gemini key, and the bot says so without one).
   - `/price <text>` parses and prices free text.
+
+---
+
+# Modular monolith and free hosting (branch `refactor-modular`)
+
+## Package layout
+- `backend/app` is split into `core`, `data_pipeline`, `intelligence/{market,books,b2b,advisor}`, `api/{routers,schemas}`
+  and `channels`. `main.py`, `cli.py` and the seed files stay at the top. Files were moved with `git mv`, so their
+  history follows them.
+- **Import direction** (enforced by `tests/test_architecture.py`, which scans every import including lazy ones
+  inside functions):
+  - `core` → only core;
+  - `data_pipeline` → core and `intelligence.market`;
+  - `intelligence` → never `api`, `channels` or the entry points (`main`, `cli`, `seed*`);
+  - `api` and `channels` may import anything below them.
+- `data_pipeline/sources.py` now owns `sources.yaml` loading, the `sources` table sync and the reload counter
+  (previously inside `telegram_ingest`).
+- **IMEI helpers moved.** `inputs.py` used to import `load_tac` / `luhn_digit` from `seed_v2`, which would have
+  made `intelligence` depend on the seed (and, through it, on `api.routers.auth`). They now live in
+  `intelligence/market/imei.py`, and the seed imports them from there. The TAC table is read once and cached.
+- Imports were rewritten with an AST script (multi-line and in-function imports included). One trap: the
+  "register models" imports (`from app.core import models  # noqa: F401`) must keep their `noqa`, otherwise
+  `ruff --fix` deletes them as unused. Without them `create_all` sees no tables and Alembic autogenerate would
+  propose dropping every table.
+- No endpoint, response shape or CLI command changed; the full suite and the smoke run are unchanged.
+
+## Free hosting (Render + Neon)
+- **PostgreSQL pool** (`core/db.postgres_engine_options`): `pool_pre_ping=True`, `pool_size=3`, `max_overflow=2`,
+  `pool_recycle=300`, `connect_timeout=15`. Neon suspends compute after ~5 min idle and drops connections; the
+  pre-ping plus recycle hide that. Neon `-pooler` hosts (PgBouncer in transaction mode) get
+  `prepare_threshold=None`, because psycopg's automatic prepared statements break there. `sslmode` /
+  `channel_binding` in the URL go straight to libpq. `psycopg[binary]` is already in `requirements.txt`.
+- **`PORT` / `HOST` settings.** The Docker CMD is exactly `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`
+  (uvicorn's default of one worker, on purpose: the Telegram listener, the bot and the in-process caches must
+  exist once). `python -m app.main` does the same from Python. `--proxy-headers` was dropped to keep the
+  specified command; nothing in the API depends on client IPs or the request scheme.
+- **`GET /api/v1/ping`** has no dependencies at all (no auth, no DB session), so an uptime pinger keeps Render
+  awake without waking Neon. `/health` is unchanged.
+- **Telegram without a session file.** The server builds the Telethon client only from `TG_SESSION`
+  (`make_client(allow_file=False)`). Only the CLI (`tg-resolve`, `tg-history`) may fall back to the local file
+  from `tg-login`. Missing `TG_SESSION`, `TG_BOT_TOKEN` or `GEMINI_API_KEY` each log a warning at startup and
+  switch only that feature off; `/health` shows the reason. The admin history import also requires `TG_SESSION`
+  (503 as before).
+- **Memory (Render free = 512 MB):** pandas is imported inside the 10 functions that use it (type-only import at
+  module level). openpyxl and WeasyPrint were already lazy. A test imports `app.main` in a subprocess and asserts
+  none of the three is loaded. The startup log line shows RSS (`core/memory.py`: `/proc` on Linux, psapi on
+  Windows).
+- **`render.yaml`** sits at the repo root and uses `dockerfilePath: ./backend/Dockerfile` with
+  `dockerContext: ./backend` (both relative to the repo root, no `rootDir`), plus `buildFilter` on `backend/**`.
+  Secrets use `sync: false`; `ADMIN_KEY` is `generateValue`. Region Frankfurt, close to Neon `eu-central-1`.
+- **Neon compute hours:** the extractor polls the DB every 5 s and decisions rebuild every 10 min, which keeps
+  Neon awake. `docs/DEPLOY.md` explains how to switch them off to let Neon sleep.
+- **Seeding** happens from a laptop (`DATABASE_URL=<neon> python -m app.cli seed --reset`), because free Render
+  services have no shell.
+- **One `TG_SESSION` per running backend.** Telegram may revoke a session used from two places at once
+  (`AuthKeyDuplicatedError`), and two pollers on one bot token steal each other's updates. This is documented in
+  `DEPLOY.md`, `.env.example` and `render.yaml`.

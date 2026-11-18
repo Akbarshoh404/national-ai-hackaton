@@ -103,55 +103,67 @@ httpx, google-genai (Gemini), openpyxl, WeasyPrint (optional, for PDF), pytest, 
 
 ## 3. Repository layout
 
+`backend/app` is a **modular monolith**: one deployable process, five packages with a one-way import direction
+(enforced by `tests/test_architecture.py`). Each package has its own `README.md`.
+
+```
+ api ──────────┐            channels ──────┐        (HTTP routers + schemas │ Telegram bot, integrations)
+               ▼                           ▼
+        intelligence  (market · books · b2b · advisor — the engines; never imports api/channels)
+               ▲
+ data_pipeline ┘ (Telegram → listings; may import only core + intelligence.market)
+               ▼
+             core   (config, db, models, auth, i18n, llm, events, alerts — imports nothing else)
+```
+
 ```
 .
-├── README.md                     ← this file
+├── README.md                         ← this file
+├── render.yaml                       Render Blueprint (free Docker web service)
+├── docs/DEPLOY.md                    free hosting: Neon + Render + cron-job.org + Cloudflare tunnel + frontend
 └── backend/
     ├── app/
-    │   ├── main.py               FastAPI app: lifespan (migrations + workers), CORS, error handlers, routers
-    │   ├── config.py             all settings from env + documented engine factors (margins, haircuts, products)
-    │   ├── db.py                 engine (SQLite WAL / PostgreSQL), sessions, migrate/create/drop helpers
-    │   ├── models.py             every table (see §13)
-    │   ├── deps.py               auth: API keys (company or user), roles, admin key, language
-    │   ├── permissions.py        central role policy (owner / manager / appraiser / lender_officer, partners)
-    │   ├── errors.py             one error format {"error": {code, message, details}}
-    │   ├── i18n.py               uz / ru / en texts, money formatting, language detection
-    │   ├── catalog.py            categories, conditions, attribute fields, districts, labels, model normalizer
-    │   ├── logging_setup.py      key=value logs with secret redaction
-    │   ├── cli.py                python -m app.cli init-db | seed | tg-login | tg-resolve | tg-history | extract-once
-    │   ├── seed.py               v1 synthetic market (2,000 listings) + demo companies with planted problems
-    │   ├── seed_v2.py            stores, users, partner accounts, 80-unit stock, collateral, loan application
-    │   ├── routers/              HTTP layer, one file per area (auth, meta, dashboard, decisions, market,
-    │   │                         inputs, stock, books, exchange, advisor, alerts, platform, lender, admin)
-    │   ├── schemas/              Pydantic request/response models per area (+ blocks.py for copilot blocks)
-    │   └── services/
-    │       ├── pricing.py        fair-price engine
-    │       ├── market.py         feed, stats, sourcing radar + deal alerts, trends, heatmap, rental yield
-    │       ├── stock.py          stock command center: ratings, suggestions, reprice, exports (xlsx/csv/1C)
-    │       ├── books.py          import, AI auditor, benchmark, budget control, slow stock, revaluation
-    │       ├── decisions.py      daily decisions queue + approve/ignore + worker loop
-    │       ├── exchange.py       RFQs, quote ranking, counter-offers, offers, deals, ratings, demand, deal act
-    │       ├── finance.py        cash flow, credit + schedules, tax, loan readiness, expansion, business plan
-    │       ├── copilot.py        intent router → Python tools → answer blocks + chips
-    │       ├── lender.py         valuations, collateral LTV monitoring, loan applications, market report
-    │       ├── inputs.py         free-text parse, IMEI check, t.me link pricing
-    │       ├── extractor.py      raw post → listing (LLM or rules) → validation → deal check
-    │       ├── telegram_ingest.py Telethon listener, history import, PII stripping, sources.yaml
-    │       ├── bot.py            Telegram bot + alert push
-    │       ├── integrations/     adapter interface; Didox/Soliq/BILLZ/1C/bank mock adapters
-    │       ├── llm.py            Gemini wrapper (JSON, text, vision, audio) with fallbacks
-    │       ├── alerts.py, events.py, sse.py, activity.py, fx.py, workers.py
-    ├── alembic/                  migrations (0001 initial, 0002 v2)
+    │   ├── main.py                   FastAPI app: lifespan (migrations, workers, memory log), CORS, errors, routers;
+    │   │                             `python -m app.main` honours $PORT
+    │   ├── cli.py                    python -m app.cli init-db | seed | tg-login | tg-resolve | tg-history | extract-once
+    │   ├── seed.py, seed_v2.py       synthetic demo data (market, companies, planted problems, stock, bank)
+    │   ├── core/                     shared kernel — imports nothing outside core
+    │   │   ├── config.py             settings from env + documented engine constants (margins, haircuts, products)
+    │   │   ├── db.py                 engine (SQLite WAL / PostgreSQL+Neon pool), sessions, migrate/create/drop
+    │   │   ├── models.py             every table (see §13)
+    │   │   ├── deps.py, permissions.py  API-key auth (company or user), roles, central role policy
+    │   │   ├── errors.py, i18n.py, catalog.py  error format; uz/ru/en texts; categories, attributes, districts
+    │   │   ├── llm.py                Gemini wrapper (JSON, text, vision, audio) with fallbacks
+    │   │   ├── events.py, sse.py, alerts.py, activity.py  pub/sub, SSE, alerts, activity log
+    │   │   └── fx.py, workers.py, memory.py, logging_setup.py  FX rate, worker supervision, RSS, redacted logs
+    │   ├── data_pipeline/            Telegram → listings (#19)
+    │   │   ├── sources.py            sources.yaml ⇄ sources table, live reload counter
+    │   │   ├── telegram_ingest.py    Telethon (TG_SESSION StringSession) listener, history, PII stripping
+    │   │   └── extractor.py          raw post → listing (LLM or rules) → validation → deal check
+    │   ├── intelligence/             the engines — never imports api / channels
+    │   │   ├── market/               pricing (fair-price engine), market (radar, trends, heatmap, yield),
+    │   │   │                         stock (command center), inputs (free text, links), imei (Luhn + TAC)
+    │   │   ├── books/                books (import, AI auditor, budget, benchmark, revaluation), decisions
+    │   │   ├── b2b/                  exchange (RFQs, ranking, counter-offers, deals, ratings, demand)
+    │   │   └── advisor/              finance (credit, tax, readiness, expansion, plan), copilot, lender
+    │   ├── api/
+    │   │   ├── routers/              one file per area (auth, meta, dashboard, decisions, market, inputs, stock,
+    │   │   │                         books, exchange, advisor, alerts, platform, lender, admin)
+    │   │   └── schemas/              Pydantic request/response models (+ blocks.py for copilot blocks)
+    │   └── channels/
+    │       ├── bot.py                Telegram bot + alert push
+    │       └── integrations/         adapter interface; Didox/Soliq/BILLZ/1C/bank mock adapters
+    ├── alembic/                      migrations (0001 initial, 0002 v2)
     ├── data/
-    │   ├── tac.csv               DEMO IMEI TAC table (made up; see §17)
-    │   └── samples/              mock integration files (Didox invoice with planted errors, 1C, bank, BILLZ, Soliq)
-    ├── scripts/smoke.py          calls every endpoint once against a running server
-    ├── tests/                    pytest suite (temp SQLite + seed, no LLM, no Telegram)
-    ├── sources.yaml              Telegram channels by display name (usernames resolved with tg-resolve)
-    ├── DECISIONS.md              every design decision and assumption
+    │   ├── tac.csv                   DEMO IMEI TAC table (made up; see §17)
+    │   └── samples/                  mock integration files (Didox invoice with planted errors, 1C, bank, BILLZ, Soliq)
+    ├── scripts/smoke.py              calls every endpoint once against a running server
+    ├── tests/                        pytest suite (temp SQLite + seed, no LLM, no Telegram)
+    ├── sources.yaml                  Telegram channels by display name (usernames resolved with tg-resolve)
+    ├── DECISIONS.md                  every design decision and assumption
     ├── Dockerfile, docker-compose.yml, .env.example
     ├── requirements.txt, requirements-dev.txt, pyproject.toml (ruff + pytest config)
-    └── README.md                 short pointer to this file
+    └── README.md                     short pointer to this file
 ```
 
 ---
@@ -264,15 +276,16 @@ Everything comes from environment variables (or `backend/.env`). Defaults are sh
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./bozorpilot.db` | SQLite locally; `postgresql://…` / `postgres://…` switch to PostgreSQL with no code changes |
+| `DATABASE_URL` | `sqlite:///./bozorpilot.db` | SQLite locally; `postgresql://…` / `postgres://…` switch to PostgreSQL with no code changes. Neon strings with `?sslmode=require` work as-is (pool: pre-ping, 3 + 2 connections, recycle every 300 s) |
 | `ADMIN_KEY` | `change-me` | `X-Admin-Key` for `/admin/*` |
 | `CORS_ORIGINS` | `http://localhost:3000,https://bozorpilot.vercel.app` | Comma-separated allowed origins |
 | `DEMO_MODE` | `true` | Enables `/auth/demo-login` and demo companies in `/meta` |
 | `AUTO_MIGRATE` | `true` | Run Alembic on startup |
 | `LOG_LEVEL` | `INFO` | Log level (key=value format, secrets redacted) |
+| `PORT` / `HOST` | `8000` / `0.0.0.0` | Listening port and host for `python -m app.main` and the Docker CMD (Render injects `PORT`) |
 | `WORKERS_TELEGRAM` / `WORKERS_EXTRACTOR` / `WORKERS_DECISIONS` / `BOT_ENABLED` | `true` | Worker switches |
 | `TG_API_ID`, `TG_API_HASH` | — | Telegram app credentials (my.telegram.org) |
-| `TG_SESSION` | — | StringSession printed by `tg-login` (servers). Locally a session file is used |
+| `TG_SESSION` | — | StringSession printed by `tg-login`. **The server uses only this** (no session file); the CLI may fall back to the local file. One running backend per session |
 | `TG_SESSION_FILE` | `bozorpilot` | Local session file name |
 | `TG_HISTORY_LIMIT` | `3000` | Messages per source for history import |
 | `TG_BOT_TOKEN` | — | Bot token from @BotFather |
@@ -356,6 +369,7 @@ acting user.
 | GET | `/companies/{id}` | One company's public profile |
 | GET | `/meta` | Dropdowns and labels: categories, conditions, attribute fields, districts, roles, user roles, offer kinds, credit products, decision types, block types, integration kinds, plans, FX, currency formats, demo companies, and your stores (when called with a key) |
 | GET | `/health` | DB, LLM, Telegram, extractor, bot status |
+| GET | `/ping` | `{"ok": true}` — no auth, no database; for uptime pingers |
 | GET | `/dashboard` | KPIs, top alerts, sourcing deals, open RFQs, recent deals, 6-month cash flow, **top 5 decisions**, **stock tiles** |
 | GET / POST / PATCH | `/stores`, `/stores/{id}` | Stores of the company |
 | GET / POST / DELETE | `/users`, `/users/{id}` | Users with roles (owner only; the key is shown once) |
@@ -685,7 +699,8 @@ recreated. Approve claims the card with a conditional update, so it runs exactly
 1. Create an app at https://my.telegram.org → *API development tools*. Put `TG_API_ID` and `TG_API_HASH` in
    `.env`.
 2. Run `python -m app.cli tg-login` and enter your phone, code and 2FA password. It saves `bozorpilot.session`
-   locally and prints `TG_SESSION=…` for servers. **Treat it like a password.**
+   locally (used by the CLI) and prints `TG_SESSION=…`. **The server needs `TG_SESSION`**; without it the
+   listener stays off with a warning. **Treat it like a password.**
 
 ### Resolve channels
 
@@ -782,7 +797,7 @@ names, types, units and labels are served by `/meta`. Migrations: `alembic/versi
 cd backend && pytest -q
 ```
 
-137 tests run on a temporary SQLite database with seed data, **no LLM and no Telegram**. Test modules that change
+147 tests run on a temporary SQLite database with seed data, **no LLM and no Telegram**. Test modules that change
 seed data use a module-scoped reseed fixture.
 
 | Test file | Covers |
@@ -802,6 +817,8 @@ seed data use a module-scoped reseed fixture.
 | `test_inputs.py` | the three free-text examples, IMEI Luhn + TAC, upload preview + mapping, link pricing (DB and mocked Telegram), voice 503 |
 | `test_v2_exchange_integrations.py` | counter-offer flow, deal document, demand by district, radar fields, Didox sync catches planted errors, bot additions |
 | `test_regressions.py` | bugs found by the live smoke run |
+| `test_architecture.py` | import-direction rules of the modular monolith, package READMEs |
+| `test_hosting.py` | `/ping` without auth or DB, Neon pool settings, `PORT`, lazy pandas/openpyxl/WeasyPrint, workers off without secrets |
 
 ```bash
 ruff check app tests scripts
@@ -818,25 +835,32 @@ python scripts/smoke.py http://127.0.0.1:8000 change-me
 
 ## 15. Deployment
 
-### Docker
+**Free hosting** (full guide: [docs/DEPLOY.md](docs/DEPLOY.md)):
+
+| Piece | Where | Notes |
+|---|---|---|
+| API | **Render** free Docker web service, from [`render.yaml`](render.yaml) | `PORT` injected; one uvicorn worker; health check `/api/v1/ping`; migrations on startup |
+| Database | **Neon** free PostgreSQL | paste the connection string (`?sslmode=require`) into `DATABASE_URL`; seed once from your laptop: `DATABASE_URL=<neon> python -m app.cli seed --reset` |
+| Keep-alive | **cron-job.org** | `GET /api/v1/ping` every 10 min (free Render services sleep after ~15 min idle) |
+| Frontend | **Vercel** or **Cloudflare Pages** | set `CORS_ORIGINS` on the API to the frontend origin(s) |
+| From a laptop | **Cloudflare quick tunnel** | `cloudflared tunnel --url http://localhost:8000` → public `https://….trycloudflare.com` |
+
+Free-tier fit:
+- Memory stays under Render's 512 MB: pandas, openpyxl and WeasyPrint are imported only inside the functions
+  that use them, and the startup log prints the process memory.
+- Missing `TG_SESSION`, `TG_BOT_TOKEN` or `GEMINI_API_KEY` only switch that feature off, with a warning in the
+  log; the API keeps running.
+- **Only one running backend may use a given `TG_SESSION`** (and bot token) at a time.
+
+### Docker (any host)
 
 ```bash
 docker compose up --build
 ```
 
-`docker-compose.yml` runs the API image with PostgreSQL 16. The `Dockerfile` (python:3.11-slim) installs the
-WeasyPrint system libraries, so PDFs work in the container. Migrations run on startup. Seed once with
-`docker compose exec api python -m app.cli seed --reset`.
-
-### Railway
-
-1. New project → *Deploy from GitHub repo*, root directory `backend`. Railway builds the `Dockerfile`.
-2. Add the **PostgreSQL** plugin and set `DATABASE_URL=${{Postgres.DATABASE_URL}}`. The `postgres://` scheme is
-   handled automatically.
-3. Set `ADMIN_KEY`, `CORS_ORIGINS` (your Vercel domain), `TG_API_ID`, `TG_API_HASH`, **`TG_SESSION`**,
-   `TG_BOT_TOKEN` and `GEMINI_API_KEY`.
-4. Deploy, then seed once from the Railway shell: `python -m app.cli seed --reset`.
-5. **Run one replica only.** The Telegram listener and the bot must not run twice.
+`docker-compose.yml` runs the API image with PostgreSQL 16. The image runs
+`uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}` and includes the WeasyPrint system libraries for
+PDFs. Seed once with `docker compose exec api python -m app.cli seed --reset`.
 
 ---
 
@@ -876,7 +900,7 @@ Start from a fresh `seed --reset`. Keys are in §5.
 - [ ] **Didox / Soliq / BILLZ / 1C / bank API agreements**; until then the adapters are mock-only
 - [ ] Set a strong `ADMIN_KEY`, set `CORS_ORIGINS` to the real frontend domain, and set `DEMO_MODE=false` in
       production
-- [ ] Run a single replica on Railway
+- [ ] Run a single instance of the backend (Render free plan = 1 instance); one backend per `TG_SESSION`
 
 ---
 

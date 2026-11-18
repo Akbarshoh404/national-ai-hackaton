@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -42,7 +43,22 @@ def make_engine(url: str) -> Engine:
             cur.close()
 
         return eng
-    return create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
+    return create_engine(url, **postgres_engine_options(url))
+
+
+def postgres_engine_options(url: str) -> dict[str, Any]:
+    """Pool settings for PostgreSQL, tuned for Neon's free tier.
+
+    Neon suspends compute after ~5 min idle and drops connections, so: ping before use, a small pool,
+    and recycle connections every 5 minutes. Neon `-pooler` hosts run PgBouncer in transaction mode,
+    where psycopg's automatic prepared statements break, so they are switched off there.
+    `?sslmode=require` (and `channel_binding`) in the URL are passed straight to libpq.
+    """
+    connect_args: dict[str, Any] = {"connect_timeout": 15}
+    if "-pooler." in url:
+        connect_args["prepare_threshold"] = None
+    return {"pool_pre_ping": True, "pool_size": 3, "max_overflow": 2, "pool_recycle": 300,
+            "connect_args": connect_args}
 
 
 engine = make_engine(settings.DATABASE_URL)

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     DEMO_MODE: bool = True
     AUTO_MIGRATE: bool = True
     LOG_LEVEL: str = "INFO"
+    #: Render/Heroku-style port injection; `python -m app.main` and the Docker CMD both honour it
+    PORT: int = 8000
+    HOST: str = "0.0.0.0"
 
     # --- workers --------------------------------------------------------------
     WORKERS_TELEGRAM: bool = True

@@ -68,7 +68,7 @@ def cmd_tg_resolve(_: argparse.Namespace) -> None:
     from app.data_pipeline import telegram_ingest as tg
 
     async def run() -> None:
-        client = tg.make_client()
+        client = tg.make_client(allow_file=True)
         await client.connect()
         if not await client.is_user_authorized():
             sys.exit("Not logged in. Run `python -m app.cli tg-login` first.")
@@ -107,7 +107,7 @@ def cmd_tg_history(args: argparse.Namespace) -> None:
     from app.data_pipeline import telegram_ingest as tg
 
     sources.sync_sources_from_yaml()
-    print(json.dumps(asyncio.run(tg.run_history(args.limit)), indent=2))
+    print(json.dumps(asyncio.run(tg.run_history(args.limit, allow_file=True)), indent=2))
 
 
 def cmd_extract_once(args: argparse.Namespace) -> None:

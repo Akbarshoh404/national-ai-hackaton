@@ -15,6 +15,7 @@ from app.api.schemas.auth import (
     HealthResponse,
     LabelSet,
     MetaResponse,
+    PingOut,
     StoreRef,
 )
 from app.core import catalog, fx, llm, workers
@@ -68,6 +69,12 @@ def meta_get(db: DbDep, company: OptionalCompanyDep) -> MetaResponse:
                 for s in db.scalars(select(Store).where(Store.company_id == company.id).order_by(Store.id))]
         if company else [],
     )
+
+
+@router.get("/ping", response_model=PingOut)
+def ping() -> PingOut:
+    """Liveness for uptime pingers (keeps a free Render service awake). No auth, no database access."""
+    return PingOut()
 
 
 @router.get("/health", response_model=HealthResponse)
