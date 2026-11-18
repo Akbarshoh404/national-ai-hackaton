@@ -10,4 +10,4 @@ readable `operationId` (the function name, e.g. `market_price`). Mounted under `
 | `market`, `inputs`, `stock` | market engine, fast inputs, stock command center | #19, #26 |
 | `books`, `decisions`, `dashboard` | AI auditor, budget control, decisions queue, home screen | #26, #25 |
 | `exchange` | B2B exchange | #19 |
-| `advisor`, `lender` | copilot, credit, tax, plans, loan applications, lender & bazaar console | #20 |
+| `advisor`, `lender` | copilot, cash flow, credit, tax, loan readiness, loan applications, lender & bazaar console | #20 |

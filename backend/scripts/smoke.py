@@ -116,11 +116,11 @@ def main() -> None:
     call("POST", "/advisor/credit", ch, json={"principal_uzs": 100_000_000, "months": 24})
     call("GET", "/advisor/tax", ch)
     call("GET", "/advisor/loan-readiness", ch)
-    call("POST", "/advisor/expansion", ch, json={"category": "laptop", "budget_uzs": 400_000_000})
-    call("POST", "/advisor/expansion", yr, json={"category": "rent", "budget_uzs": 900_000_000})
-    for fmt in ("html", "pdf", "json"):
-        call("POST", "/advisor/business-plan", ch, json={"loan_amount_uzs": 150_000_000, "loan_months": 24,
-                                                         "purpose": "Yangi filial", "format": fmt})
+    call("POST", "/advisor/chat", ch, json={"question": "Ikkinchi filial ochsam bo'ladimi?"})
+    # the roadmap maker was removed: these must be gone
+    call("POST", "/advisor/expansion", ch, expect=404, json={"category": "phone", "budget_uzs": 1})
+    call("POST", "/advisor/business-plan", ch, expect=404, json={})
+    call("GET", "/advisor/business-plan?loan_amount_uzs=1", ch, expect=404)
 
     # alerts
     al = call("GET", "/alerts?unread_only=true", ch).json()
@@ -198,7 +198,6 @@ def v2(ch: dict, to: dict, sa: dict, yr: dict) -> None:
                                                         "inventory_ids": [x["inventory_id"] for x in units[:2]]}})
     call("POST", "/advisor/chat", ch, json={"question": "100 mln kredit 24 oyga"})
     call("POST", "/advisor/credit", yr, json={"product": "mortgage", "months": 180, "asset_value_uzs": 900_000_000})
-    call("GET", "/advisor/business-plan?loan_amount_uzs=100000000&loan_months=24", ch)
 
     # fast inputs
     call("POST", "/input/parse", ch, json={"text": "cobalt 2021 45 ming probeg pozitsiya 4"})
@@ -235,7 +234,7 @@ def v2(ch: dict, to: dict, sa: dict, yr: dict) -> None:
     call("GET", "/lender/collateral/summary", bank)
     apps = call("GET", "/lender/applications", bank).json()["items"]
     call("GET", f"/lender/applications/{apps[0]['id']}", bank)
-    call("GET", f"/lender/applications/{apps[0]['id']}/business-plan", bank)
+    call("GET", f"/lender/applications/{apps[0]['id']}/business-plan", bank, expect=404)
     call("POST", f"/lender/applications/{apps[0]['id']}/decision", bank, expect=(200, 409),
          json={"status": "reviewing"})
     call("GET", "/partner/market-report?category=phone", bozor)

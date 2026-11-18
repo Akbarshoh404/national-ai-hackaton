@@ -327,3 +327,45 @@ Choices made while building, where the spec left room. Grouped by area.
 - **One `TG_SESSION` per running backend.** Telegram may revoke a session used from two places at once
   (`AuthKeyDuplicatedError`), and two pollers on one bot token steal each other's updates. This is documented in
   `DEPLOY.md`, `.env.example` and `render.yaml`.
+
+---
+
+# Removal of the roadmap maker (branch `remove-roadmap`)
+
+**Reason:** scope narrowed to product and market analysis plus finance calculators. The expansion planner and
+the business-plan generator (HTML/PDF/JSON plans with an LLM-written executive summary) were deleted outright,
+not hidden behind a flag. Earlier sections of this file that describe them are kept as history and are
+superseded by this one.
+
+- **Removed endpoints:** `POST /advisor/expansion`, `POST /advisor/business-plan`, `GET /advisor/business-plan`,
+  `GET /lender/applications/{id}/business-plan`. They now return 404 (tested). The smoke script checks that they
+  are gone.
+- **Removed code:**
+  - `finance.expansion` (+ goods / realty helpers), `finance.business_plan`, `_exec_summary` (the LLM prompt),
+    the plan HTML/CSS template and its section headings;
+  - the `ExpansionIn/Line/Out` and `BusinessPlanIn/Out` schemas;
+  - `STOCK_TURNS_PER_MONTH` in config. The setup cost (10%) and the 2-month opex reserve were inline constants
+    of the planner and went with it.
+  - No env variable was planner-only, so `.env.example` needs no change.
+- **Kept and moved, because other features use them:**
+  - `render_pdf` (WeasyPrint) moved to `core/pdf.py` for deal documents; WeasyPrint stays in the image.
+  - `_typical` (most common market configuration of a model) moved to `intelligence/market/market.py` as
+    `typical_config`; the copilot's price tool uses it.
+  - `RENT_OPEX_RATIO` and `DEALER_MARGIN` stay (rental yield, pricing).
+- **Copilot:**
+  - The `expansion` and `business_plan` intents, tools, templates and chips are gone.
+  - Their keywords now route to existing calculators: "filial / branch / kengay / expand / new store" → **credit**
+    (loan schedule + payment, average net, max loan); "biznes reja / бизнес-план / business plan" → **loan
+    readiness** (score + improvement steps). The answers use only numbers those calculators produce.
+  - The chips that opened the business plan now point to `GET /advisor/lenders` ("Apply to a lender").
+  - The `file` block type stays in the schema for documents and exports, though no current tool emits it.
+- **Loan applications:**
+  - The snapshot was never built from the plan, so it is unchanged: readiness with factors, 6-month cash flow,
+    audit summary, stock at market, credit calculation, pledged units.
+  - **`business_plan_url` is removed from `LoanApplicationDetail`, not set to null.** The frontend generates its
+    types from `/openapi.json`, and the field only linked to the removed page. Removing it makes the compiler
+    point at exactly the screen code the frontend team has to delete, while a permanently-null field would leave
+    dead UI compiling silently.
+- `/meta`, `/dashboard` and the bot never referenced the roadmap feature, so they needed no change.
+- **Problem #20 stays covered** by `/advisor/chat`, `/advisor/cashflow`, `/advisor/credit`, `/advisor/tax`,
+  `/advisor/loan-readiness`, `/advisor/lenders` and `/advisor/loan-applications` (unchanged).

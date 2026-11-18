@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -192,3 +192,23 @@ def rental_yield(db: Session, district: str, rooms: int, area_m2: float, furnish
         "assumptions": [f"Net yield deducts {int(RENT_OPEX_RATIO * 100)}% of rent for vacancy, maintenance "
                         "and property tax", "Rent is the monthly median for the same rooms"],
     }
+
+
+def typical_config(db: Session, category: str, model_norm: str) -> dict[str, Any]:
+    """Most common configuration of a model on the market."""
+    since = date.today() - timedelta(days=settings.MARKET_WINDOW_DAYS)
+    rows = db.execute(select(Listing.brand, Listing.model, Listing.condition, Listing.attrs).where(
+        Listing.category == category, Listing.model_norm == model_norm, Listing.posted_at >= since)).all()
+
+    def mode(vals: list[Any]) -> Any:
+        vals = [v for v in vals if v is not None]
+        return max(set(vals), key=vals.count) if vals else None
+
+    attrs: dict[str, Any] = {}
+    for key in {"phone": ["storage_gb"], "laptop": ["ram_gb", "ssd_gb"], "car": ["fuel"]}.get(category, []):
+        attrs[key] = mode([(r.attrs or {}).get(key) for r in rows])
+    if category == "car":
+        years = [(r.attrs or {}).get("year") for r in rows if (r.attrs or {}).get("year")]
+        attrs["year"] = int(np.median(years)) if years else None
+    return {"brand": mode([r.brand for r in rows]), "model": mode([r.model for r in rows]),
+            "condition": mode([r.condition for r in rows]), "attrs": {k: v for k, v in attrs.items() if v}}

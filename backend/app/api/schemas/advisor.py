@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from app.api.schemas.alerts import AlertOut
 from app.api.schemas.blocks import Block, Chip
-from app.api.schemas.common import Category
 from app.api.schemas.decisions import DecisionOut
 from app.api.schemas.exchange import DealOut, RfqOut
-from app.api.schemas.market import ListingOut, RentalYieldOut
+from app.api.schemas.market import ListingOut
 from app.api.schemas.stock import StockSummary
 
 
@@ -115,67 +113,6 @@ class LoanReadinessOut(BaseModel):
     grade: Literal["A", "B", "C", "D"]
     factors: list[LoanFactor]
     how_to_improve: list[str]
-
-
-class ExpansionIn(BaseModel):
-    category: Category
-    budget_uzs: float = Field(gt=0)
-    district: str | None = None
-
-
-class ExpansionLine(BaseModel):
-    model: str
-    condition: str | None
-    attrs: dict[str, Any]
-    market_listings: int
-    units: int
-    buy_price_uzs: float
-    sell_price_uzs: float
-    unit_margin_uzs: float
-    monthly_gross_profit_uzs: float
-    basis: str
-    confidence: str
-
-
-class ExpansionOut(BaseModel):
-    category: str
-    budget_uzs: float
-    setup_cost_uzs: float
-    opex_reserve_uzs: float
-    stock_budget_uzs: float
-    stock_invested_uzs: float
-    stock_turns_per_month: float
-    monthly_gross_profit_uzs: float
-    monthly_opex_uzs: float
-    monthly_net_profit_uzs: float
-    break_even_months: float | None
-    lines: list[ExpansionLine]
-    yield_options: list[RentalYieldOut]
-    assumptions: list[str]
-
-
-class BusinessPlanIn(BaseModel):
-    loan_amount_uzs: float = Field(gt=0)
-    loan_months: int = Field(ge=1, le=120)
-    purpose: str = Field(min_length=3, max_length=1000)
-    expansion: ExpansionIn | None = None
-    format: Literal["html", "pdf", "json"] = "html"
-
-
-class BusinessPlanOut(BaseModel):
-    company: dict[str, Any]
-    generated_on: date
-    language: str
-    purpose: str
-    executive_summary: str
-    summary_source: Literal["llm", "rules"]
-    financials: list[CashflowMonth]
-    inventory: dict[str, Any]
-    loan: CreditOut
-    expansion: ExpansionOut | None
-    loan_readiness: LoanReadinessOut
-    tax: TaxOut
-    audit_summary: dict[str, Any]
 
 
 class ChatTurn(BaseModel):

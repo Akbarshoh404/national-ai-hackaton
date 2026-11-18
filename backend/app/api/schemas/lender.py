@@ -119,8 +119,8 @@ class LoanApplicationOut(ORM):
 
 
 class LoanApplicationDetail(LoanApplicationOut):
-    snapshot: dict[str, Any]
-    business_plan_url: str
+    snapshot: dict[str, Any] = Field(description="Frozen at submission: readiness, cash flow, audit summary, "
+                                                 "stock at market, credit calculation, pledged units")
 
 
 class ApplicationDecisionIn(BaseModel):

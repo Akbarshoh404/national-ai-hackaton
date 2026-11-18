@@ -49,7 +49,7 @@ The four official problems (Chamber of Commerce) and the modules that answer the
 | **#19** Market price analytics + B2B trading platform | Market engine, Stock command center, B2B exchange | Reads Telegram sale channels, builds a fair-price index, rates every unit in stock, lets businesses trade (RFQs, quotes, offers, counter-offers, deals, ratings) |
 | **#26** Operating costs + human-error audit | AI Auditor, Decisions queue, Integrations | Finds duplicates, typos, wrong totals, cost spikes, overpayments and missing counterparties, and offers one-click fixes |
 | **#25** Budget plan vs fact, early warning | Budget control, Decisions queue, Alerts | Plan vs actual per category, month-end forecast, alerts before a limit is crossed |
-| **#20** Financial advisor: business plan, credit, tax, market | AI Advisor (copilot), Lender console | Copilot with answer blocks, credit products with schedules, tax comparison, loan readiness, expansion planner, business plan, loan applications to banks |
+| **#20** Financial advisor: credit, tax, market | AI Advisor (copilot), Lender console | Copilot with answer blocks, cash flow, credit products with schedules, tax comparison, loan readiness, loan applications to banks |
 
 **B2B only.** Every user is a registered business (STIR/INN). Telegram posts from private sellers are used only
 as anonymized market data.
@@ -145,7 +145,7 @@ httpx, google-genai (Gemini), openpyxl, WeasyPrint (optional, for PDF), pytest, 
     │   │   │                         stock (command center), inputs (free text, links), imei (Luhn + TAC)
     │   │   ├── books/                books (import, AI auditor, budget, benchmark, revaluation), decisions
     │   │   ├── b2b/                  exchange (RFQs, ranking, counter-offers, deals, ratings, demand)
-    │   │   └── advisor/              finance (credit, tax, readiness, expansion, plan), copilot, lender
+    │   │   └── advisor/              finance (cash flow, credit, tax, readiness), copilot, lender
     │   ├── api/
     │   │   ├── routers/              one file per area (auth, meta, dashboard, decisions, market, inputs, stock,
     │   │   │                         books, exchange, advisor, alerts, platform, lender, admin)
@@ -324,7 +324,7 @@ Engine constants that are part of the model (not env-driven) live in `app/config
 | Dates | ISO 8601 UTC with `Z`. Months are `YYYY-MM` |
 | Language | `Accept-Language: uz \| ru \| en` (default `uz`) controls every generated text. The copilot also detects the language of the question |
 | Real time | SSE at `/market/stream` (`listing.created`, `alert.created`) and `/alerts/stream`, with a 15 s heartbeat. Polling fallback: `since_id` on `/market/listings` and `/alerts` |
-| Files | Multipart upload for CSV/XLSX/images/audio (10 MB max). Business plans and deal documents come back as `text/html` or `application/pdf`. Exports as xlsx/csv/1C CSV |
+| Files | Multipart upload for CSV/XLSX/images/audio (10 MB max). Deal documents come back as `text/html` or `application/pdf`. Exports as xlsx/csv/1C CSV |
 | Explainability | Every computed output carries its reasons: `basis`, `comparables`, `samples` (with `source_url`), `reasons`, `transaction_ids`, `inventory_ids`, `factors`, `score_breakdown` |
 | OpenAPI | Every endpoint has a Pydantic response model and a readable `operationId` (e.g. `market_price`, `exchange_accept_quote`, `stock_reprice`) |
 | Speed | Dashboard and pricing respond in < 500 ms on seed data (measured on the server: dashboard ~60 ms, stock summary ~80 ms) |
@@ -465,8 +465,6 @@ acting user.
 | POST | `/advisor/credit` | Credit calculator per product (business_loan, auto_loan, mortgage, leasing): annuity, full schedule, affordability, max loan, LTV for asset loans |
 | GET | `/advisor/tax` | Turnover tax vs VAT + profit tax for the last 3 months, with a disclaimer |
 | GET | `/advisor/loan-readiness` | 0–100 score, grade A–D, factors, how to improve |
-| POST | `/advisor/expansion` | Stock plan for goods, or best rental yields for house/rent |
-| POST / GET | `/advisor/business-plan` | Bank-ready plan as HTML / PDF / JSON (GET gives a linkable URL) |
 | GET | `/advisor/lenders` | Lenders you can apply to |
 | POST / GET | `/advisor/loan-applications` | Apply with consent (owner only) / your applications |
 
@@ -478,7 +476,6 @@ acting user.
 | GET / POST | `/lender/collateral` | Portfolio revalued live: market value, liquidation value, LTV, status `ok / watch / breach`, 30-day value change |
 | GET | `/lender/collateral/summary` | Totals, portfolio LTV, counts by status, valuations this month |
 | GET | `/lender/applications`, `/lender/applications/{id}` | Applications with the frozen snapshot of the borrower's numbers |
-| GET | `/lender/applications/{id}/business-plan` | The borrower's business plan (HTML) |
 | POST | `/lender/applications/{id}/decision` | `reviewing / approved / rejected` + note → alerts the borrower |
 | GET | `/partner/market-report?category&district&days&format=json\|xlsx` | Median price and volume per model and district, weekly trend, listings by seller type |
 
@@ -616,9 +613,11 @@ recreated. Approve claims the card with a conditional update, so it runs exactly
 
 ### 10.8 Copilot (`copilot.py`)
 
-1. **Intent router:** keyword rules in uz/ru/en across 11 tools (price, stock, audit, budget, cash flow, credit,
-   tax, loan readiness, expansion, business plan, demand) plus overview. Then the screen context and selected
-   rows. The LLM is used only to pick an intent name when the rules fail.
+1. **Intent router:** keyword rules in uz/ru/en across 9 tools (price, stock, audit, budget, cash flow, credit,
+   tax, loan readiness, demand) plus overview. Then the screen context and selected rows. The LLM is used only to
+   pick an intent name when the rules fail. Questions about opening a branch or expanding route to **credit**
+   (how much the business can borrow), and "business plan" questions route to **loan readiness**; both answer
+   only with numbers the calculators already produce.
 2. **The tool runs in Python** and builds 1–2 typed **blocks** and 2–3 **chips**. Chips are
    `{label, action:{endpoint, method, body}}` that the frontend can run.
 
@@ -631,7 +630,7 @@ recreated. Approve claims the card with a conditional update, so it runs exactly
    | `table` | `{columns, rows, row_ids}` |
    | `steps` | ordered steps with `done` / `todo` |
    | `loan_schedule` | payment, total interest, first 12 schedule rows |
-   | `file` | `{title, url, mime}` (e.g. business plan) |
+   | `file` | `{title, url, mime}` (documents and exports; no current tool emits it) |
 
 3. **Answer:** a 2-sentence template per intent. If Gemini is configured it may rephrase ("keep every number
    exactly"). Blocks are built before the LLM call and returned unchanged (tested).
@@ -664,13 +663,8 @@ recreated. Approve claims the card with a conditional update, so it runs exactly
   | B2B reputation | 15 | deals (8) + rating (7) |
 
   Grades: A ≥ 80, B ≥ 65, C ≥ 50, D otherwise. Tips are given for weak factors.
-- **Expansion:**
-  - goods: top 3 models by market volume, buy at fair buy and sell at fair, setup cost 10% of the budget,
-    2-month opex reserve, stock turns per month (phone 1.5, laptop 1.0, car 0.6), monthly profit, break-even;
-  - house/rent: the best net rental yields within the budget.
-- **Business plan:** 8 sections (executive summary, company, 6-month financials, inventory at market, loan and
-  affordability, expansion, loan readiness, tax). HTML, PDF via WeasyPrint (HTML fallback when it isn't
-  installed), or JSON.
+
+The roadmap maker (expansion planner and business-plan generator) was removed; see `DECISIONS.md`.
 
 ### 10.10 Lender console (`lender.py`)
 
@@ -797,7 +791,7 @@ names, types, units and labels are served by `/meta`. Migrations: `alembic/versi
 cd backend && pytest -q
 ```
 
-147 tests run on a temporary SQLite database with seed data, **no LLM and no Telegram**. Test modules that change
+152 tests run on a temporary SQLite database with seed data, **no LLM and no Telegram**. Test modules that change
 seed data use a module-scoped reseed fixture.
 
 | Test file | Covers |
@@ -806,13 +800,13 @@ seed data use a module-scoped reseed fixture.
 | `test_market.py` | pricing for all 5 categories (< 500 ms), badges, condition ordering, IMEI deduction, feed, radar, trend, heatmap, yield |
 | `test_books.py` | **every planted audit problem**, budget statuses, benchmark, slow stock, revaluation, upload, CRUD, 413, invoice without LLM |
 | `test_exchange.py` | RFQ → quotes → ranking → accept → deal in both books → inventory moved → ratings; offer buy; co-brokerage; demand |
-| `test_advisor.py` | annuity against a known value, credit, tax, readiness bounds, expansion, business plan, dashboard shape and speed |
+| `test_advisor.py` | annuity against a known value, credit, tax, readiness bounds, chat fallback, dashboard shape and speed |
 | `test_ingest.py` | PII stripping, price parsing (`mln` / `ming` / `$`), extractor with a **mocked LLM** (retry in halves), reposts, deal alerts, outliers, rule fallback, admin, SSE |
 | `test_bot.py` | bot commands, alert fan-out |
 | `test_platform.py` | roles (appraiser / manager / partner 403s), users, stores, activity, `/meta` additions |
 | `test_stock.py` | planted 14 overpriced / 6 aging / 8 slow, rules, atomic reprice, store filter, < 500 ms, exports |
 | `test_decisions.py` | all 8 decision types from the seed, idempotent build, approve exactly once, duplicate gone after approve |
-| `test_copilot.py` | every intent → expected block types, chips point at real endpoints, blocks untouched by the LLM, schedules, mortgage LTV |
+| `test_copilot.py` | every intent → expected block types, roadmap questions → credit / loan readiness, chips point at real endpoints, blocks untouched by the LLM, schedules, mortgage LTV, removed roadmap endpoints return 404 |
 | `test_lender.py` | liquidation < fair, breach/watch detection and alert once a day, consent required, snapshot contains the score, market report |
 | `test_inputs.py` | the three free-text examples, IMEI Luhn + TAC, upload preview + mapping, link pricing (DB and mocked Telegram), voice 503 |
 | `test_v2_exchange_integrations.py` | counter-offer flow, deal document, demand by district, radar fields, Didox sync catches planted errors, bot additions |

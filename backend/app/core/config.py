@@ -107,8 +107,6 @@ PHONE_REPAIRED_DEDUCTION = 0.08
 STORAGE_STEP_PREMIUM = 0.12
 #: Dealer margin: fair buy (trade-in / wholesale) = fair × (1 − margin).
 DEALER_MARGIN: dict[str, float] = {"phone": 0.15, "laptop": 0.15, "car": 0.08, "house": 0.05, "rent": 0.0}
-#: Stock turns per month used by the expansion planner.
-STOCK_TURNS_PER_MONTH: dict[str, float] = {"phone": 1.5, "laptop": 1.0, "car": 0.6}
 #: Share of gross rent lost to vacancy, maintenance and property tax.
 RENT_OPEX_RATIO = 0.15
 #: Price a slow-moving unit at this share of the market price to clear it.

@@ -27,17 +27,17 @@ from app.intelligence.b2b import exchange
 from app.intelligence.books import books
 from app.intelligence.market import market, pricing, stock
 
-INTENTS = ["price", "stock", "audit", "budget", "cashflow", "credit", "tax", "loan_readiness", "expansion",
-           "business_plan", "demand", "overview"]
+INTENTS = ["price", "stock", "audit", "budget", "cashflow", "credit", "tax", "loan_readiness", "demand", "overview"]
 
 # order matters: the first matching intent wins
 _RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("business_plan", ("biznes-reja", "biznes reja", "бизнес-план", "бизнес план", "business plan")),
-    ("loan_readiness", ("tayyorlik", "готовност", "readiness", "kredit reyting", "кредитный рейтинг", "score")),
-    ("expansion", ("kengay", "filial", "расшир", "филиал", "expand", "expansion", "new store", "yangi do'kon",
-                   "yangi nuqta", "новый магазин")),
+    # "business plan" questions are about being bank-ready → loan readiness
+    ("loan_readiness", ("tayyorlik", "готовност", "readiness", "kredit reyting", "кредитный рейтинг", "score",
+                        "biznes-reja", "biznes reja", "бизнес-план", "бизнес план", "business plan")),
+    # opening a branch / expanding is a financing question → credit capacity
     ("credit", ("kredit", "кредит", "loan", "qarz", "займ", "lizing", "лизинг", "ipoteka", "ипотек", "mortgage",
-                "leasing")),
+                "leasing", "kengay", "filial", "расшир", "филиал", "expand", "expansion", "branch", "new store",
+                "yangi do'kon", "yangi nuqta", "новый магазин", "второй магазин")),
     ("tax", ("soliq", "налог", "tax", "qqs", "ндс", "vat")),
     ("budget", ("byudjet", "бюджет", "budget", "limit", "лимит")),
     ("audit", ("audit", "аудит", "xato", "ошиб", "error", "dublikat", "дублик", "duplicate", "typo", "опечат")),
@@ -92,11 +92,6 @@ _L: dict[str, tuple[str, str, str]] = {
     "readiness": ("Kreditga tayyorlik", "Готовность к кредиту", "Loan readiness"),
     "score": ("Ball", "Балл", "Score"),
     "improve": ("Qanday yaxshilash", "Как улучшить", "How to improve"),
-    "expansion": ("Kengayish rejasi", "План расширения", "Expansion plan"),
-    "units_buy": ("Dona", "Шт.", "Units"),
-    "monthly_net": ("Oylik sof foyda", "Чистая прибыль/мес", "Net profit / month"),
-    "break_even": ("Qoplash (oy)", "Окупаемость (мес)", "Break-even (months)"),
-    "plan_doc": ("Biznes-reja", "Бизнес-план", "Business plan"),
     "demand": ("Talab", "Спрос", "Demand"),
     "requests": ("So'rovlar", "Запросы", "Requests"),
     "listings": ("E'lonlar", "Объявления", "Listings"),
@@ -112,9 +107,8 @@ _L: dict[str, tuple[str, str, str]] = {
     "chip_cashflow": ("12 oylik oqim", "Поток за 12 мес", "12-month cash flow"),
     "chip_credit_36": ("36 oyga hisoblash", "Рассчитать на 36 мес", "Calculate for 36 months"),
     "chip_readiness": ("Kreditga tayyorlik", "Готовность к кредиту", "Loan readiness"),
-    "chip_plan": ("Biznes-reja tuzish", "Создать бизнес-план", "Build a business plan"),
     "chip_tax": ("Soliq taqqoslash", "Сравнение налогов", "Tax comparison"),
-    "chip_expansion": ("Kengayish rejasi", "План расширения", "Expansion plan"),
+    "chip_lenders": ("Bankka ariza berish", "Подать заявку в банк", "Apply to a lender"),
     "chip_rfqs": ("Kelgan so'rovlar", "Входящие запросы", "Incoming RFQs"),
     "chip_stock": ("Ombor holati", "Состояние склада", "Stock overview"),
 }
@@ -198,7 +192,7 @@ def tool_price(db: Session, company: Company, question: str, ctx: dict[str, Any]
     if best is None:
         return tool_overview(db, company, question, ctx, lang)
     cat, m = best
-    typ = finance._typical(db, cat, m["model_norm"])
+    typ = market.typical_config(db, cat, m["model_norm"])
     attrs = dict(typ["attrs"])
     sm = re.search(r"\b(64|128|256|512)\s*(gb|гб)?\b", question, re.I)
     if sm and cat == "phone":
@@ -332,9 +326,7 @@ def tool_credit(db: Session, company: Company, question: str, ctx: dict[str, Any
     chips = [chip("chip_credit_36", lang, "/api/v1/advisor/credit", "POST",
                   {"principal_uzs": c["principal_uzs"], "months": 36}),
              chip("chip_readiness", lang, "/api/v1/advisor/loan-readiness"),
-             chip("chip_plan", lang, "/api/v1/advisor/business-plan", "POST",
-                  {"loan_amount_uzs": c["principal_uzs"], "loan_months": months, "purpose": "Aylanma mablag'",
-                   "format": "html"})]
+             chip("chip_lenders", lang, "/api/v1/advisor/lenders")]
     return blocks, chips, {"principal": c["principal_uzs"], "months": months, "payment": c["monthly_payment_uzs"],
                            "affordable": c["affordable"], "max": c["max_loan_uzs"]}
 
@@ -360,51 +352,9 @@ def tool_loan_readiness(db: Session, company: Company, question: str, ctx: dict[
                   {"label": f["label"], "status": "done" if f["points"] >= 0.7 * f["max_points"] else "todo",
                    "detail": f"{f['points']}/{f['max_points']} — {f['explanation']}"} for f in lr["factors"]]}]
     chips = [chip("chip_audit", lang, "/api/v1/books/audit"),
-             chip("chip_plan", lang, "/api/v1/advisor/business-plan", "POST",
-                  {"loan_amount_uzs": 100_000_000, "loan_months": 24, "purpose": "Aylanma mablag'", "format": "html"})]
+             chip("chip_lenders", lang, "/api/v1/advisor/lenders")]
     return blocks, chips, {"score": lr["score"], "grade": lr["grade"],
                            "tip": lr["how_to_improve"][0] if lr["how_to_improve"] else ""}
-
-
-def tool_expansion(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
-    budget = parse_money(question) or 300_000_000
-    cat = next((c for c in company.categories or [] if c in ("phone", "laptop", "car", "house", "rent")), "phone")
-    x = finance.expansion(db, company, cat, budget, None, lang)
-    blocks = [{"type": "kpi_row", "title": L("expansion", lang), "items": [
-                  {"label": L("monthly_net", lang), "value_uzs": x["monthly_net_profit_uzs"]},
-                  {"label": L("break_even", lang), "value": x["break_even_months"]}]}]
-    if x["lines"]:
-        blocks.append({"type": "table", "title": L("expansion", lang),
-                       "columns": [L("model", lang), L("units_buy", lang), L("buy", lang), L("fair", lang)],
-                       "rows": [[li["model"], li["units"], li["buy_price_uzs"], li["sell_price_uzs"]]
-                                for li in x["lines"]]})
-    else:
-        blocks.append({"type": "table", "title": L("expansion", lang), "columns": ["", L("fair", lang), "%"],
-                       "rows": [[f"{y['district']}, {y['rooms']}", y["apartment_price_uzs"], y["net_yield_pct"]]
-                                for y in x["yield_options"]]})
-    chips = [chip("chip_plan", lang, "/api/v1/advisor/business-plan", "POST",
-                  {"loan_amount_uzs": round(budget * 0.5), "loan_months": 24, "purpose": "Kengayish",
-                   "expansion": {"category": cat, "budget_uzs": budget}, "format": "html"}),
-             chip("chip_expansion", lang, "/api/v1/advisor/expansion", "POST", {"category": cat, "budget_uzs": budget})]
-    return blocks, chips, {"budget": budget, "net": x["monthly_net_profit_uzs"], "be": x["break_even_months"]}
-
-
-def tool_business_plan(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
-    amount = parse_money(question) or 100_000_000
-    months_m = _MONTHS.search(question)
-    months = int(months_m.group(1)) if months_m else 24
-    url = (f"/api/v1/advisor/business-plan?loan_amount_uzs={round(amount)}&loan_months={months}"
-           f"&purpose=Aylanma+mablag%27&format=html")
-    c = finance.credit(db, company, amount, min(months, 36), None, lang)
-    blocks = [{"type": "file", "title": L("plan_doc", lang), "url": url, "mime": "text/html"},
-              {"type": "kpi_row", "title": L("loan", lang), "items": [
-                  {"label": L("loan", lang), "value_uzs": c["principal_uzs"]},
-                  {"label": L("payment", lang), "value_uzs": c["monthly_payment_uzs"]}]}]
-    chips = [chip("chip_readiness", lang, "/api/v1/advisor/loan-readiness"),
-             chip("chip_plan", lang, "/api/v1/advisor/business-plan", "POST",
-                  {"loan_amount_uzs": round(amount), "loan_months": months, "purpose": "Aylanma mablag'",
-                   "format": "pdf"})]
-    return blocks, chips, {"amount": amount, "months": months}
 
 
 def tool_demand(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
@@ -437,7 +387,7 @@ def tool_overview(db: Session, company: Company, question: str, ctx: dict[str, A
 
 TOOLS = {"price": tool_price, "stock": tool_stock, "audit": tool_audit, "budget": tool_budget,
          "cashflow": tool_cashflow, "credit": tool_credit, "tax": tool_tax, "loan_readiness": tool_loan_readiness,
-         "expansion": tool_expansion, "business_plan": tool_business_plan, "demand": tool_demand,
+         "demand": tool_demand,
          "overview": tool_overview}
 
 
@@ -476,15 +426,6 @@ def template_answer(intent: str, f: dict[str, Any], lang: str) -> str:
         "loan_readiness": (f"Kreditga tayyorlik {f.get('score')}/100 ({f.get('grade')}). {f.get('tip')}",
                            f"Готовность к кредиту {f.get('score')}/100 ({f.get('grade')}). {f.get('tip')}",
                            f"Loan readiness is {f.get('score')}/100 ({f.get('grade')}). {f.get('tip')}"),
-        "expansion": (f"{m(f.get('budget'))} byudjet bilan oylik sof foyda {m(f.get('net'))}, "
-                      f"qoplash {f.get('be')} oy.",
-                      f"С бюджетом {m(f.get('budget'))} чистая прибыль {m(f.get('net'))} в месяц, окупаемость "
-                      f"{f.get('be')} мес.",
-                      f"With a {m(f.get('budget'))} budget: {m(f.get('net'))} net profit per month, break-even in "
-                      f"{f.get('be')} months."),
-        "business_plan": (f"{m(f.get('amount'))} kredit uchun biznes-reja tayyor.",
-                          f"Бизнес-план на кредит {m(f.get('amount'))} готов.",
-                          f"Your business plan for a {m(f.get('amount'))} loan is ready."),
         "demand": (f"Eng ko'p e'lon qilingan model: {f.get('top')} ({f.get('n')} ta).",
                    f"Больше всего объявлений: {f.get('top')} ({f.get('n')}).",
                    f"Most listed model: {f.get('top')} ({f.get('n')} listings)."),

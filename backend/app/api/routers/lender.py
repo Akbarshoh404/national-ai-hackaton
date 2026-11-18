@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import Response
 from sqlalchemy import func, select
 
 from app.api.schemas.common import Category, Page
@@ -27,7 +27,7 @@ from app.core.catalog import normalize_district
 from app.core.deps import CompanyDep, DbDep, LangDep, OwnerDep, require_company_role
 from app.core.errors import not_found
 from app.core.models import Collateral, Company, LoanApplication
-from app.intelligence.advisor import finance, lender
+from app.intelligence.advisor import lender
 
 LenderDep = Annotated[Company, Depends(require_company_role("lender"))]
 PartnerDep = Annotated[Company, Depends(require_company_role("lender", "market_admin"))]
@@ -40,8 +40,7 @@ def app_out(db: DbDep, a: LoanApplication, detail: bool = False) -> LoanApplicat
             "lender_name": db.get(Company, a.lender_id).name,
             "readiness_score": (a.snapshot or {}).get("loan_readiness", {}).get("score")}
     if detail:
-        return LoanApplicationDetail(**base, snapshot=a.snapshot,
-                                     business_plan_url=f"/api/v1/lender/applications/{a.id}/business-plan")
+        return LoanApplicationDetail(**base, snapshot=a.snapshot)
     return LoanApplicationOut(**base)
 
 
@@ -106,17 +105,6 @@ def lender_application_get(app_id: int, db: DbDep, company: LenderDep) -> LoanAp
     if a is None or a.lender_id != company.id:
         raise not_found("loan_application", app_id)
     return app_out(db, a, detail=True)
-
-
-@router.get("/lender/applications/{app_id}/business-plan", response_class=HTMLResponse)
-def lender_application_plan(app_id: int, db: DbDep, company: LenderDep, lang: LangDep) -> Response:
-    """The borrower's business plan for this application (HTML)."""
-    a = db.get(LoanApplication, app_id)
-    if a is None or a.lender_id != company.id:
-        raise not_found("loan_application", app_id)
-    borrower = db.get(Company, a.company_id)
-    plan = finance.business_plan(db, borrower, a.principal_uzs, min(a.months, 120), a.purpose, None, lang)
-    return HTMLResponse(finance.render_plan_html(plan))
 
 
 @router.post("/lender/applications/{app_id}/decision", response_model=LoanApplicationOut)

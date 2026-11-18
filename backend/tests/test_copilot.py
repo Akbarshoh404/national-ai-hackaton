@@ -17,8 +17,11 @@ CASES = [
     ("100 mln kredit 24 oyga olsam bo'ladimi?", None, "credit", {"loan_schedule", "kpi_row"}),
     ("Какой налоговый режим выгоднее?", None, "tax", {"kpi_row", "bar_chart"}),
     ("Kreditga tayyorlik darajam qanday?", None, "loan_readiness", {"kpi_row", "steps"}),
-    ("Yangi filial ochsam 300 mln bilan nima bo'ladi?", None, "expansion", {"kpi_row", "table"}),
-    ("Bank uchun biznes-reja kerak", None, "business_plan", {"file", "kpi_row"}),
+    # roadmap-style questions route to the remaining finance calculators
+    ("Yangi filial ochsam 300 mln bilan nima bo'ladi?", None, "credit", {"loan_schedule", "kpi_row"}),
+    ("Can I open a second branch?", None, "credit", {"loan_schedule", "kpi_row"}),
+    ("Bank uchun biznes-reja kerak", None, "loan_readiness", {"kpi_row", "steps"}),
+    ("Мне нужен бизнес-план", None, "loan_readiness", {"kpi_row", "steps"}),
     ("What is in demand right now?", None, "demand", {"bar_chart", "table"}),
     ("Salom", None, "overview", {"kpi_row"}),
     ("nima qilay?", {"screen": "budget"}, "budget", {"bar_chart", "kpi_row"}),
@@ -114,6 +117,24 @@ def test_credit_products(client, chilonzor, realty):
     assert no_principal.status_code == 422
 
 
-def test_business_plan_get_url(client, chilonzor):
-    r = client.get("/api/v1/advisor/business-plan?loan_amount_uzs=100000000&loan_months=24", headers=chilonzor)
-    assert r.status_code == 200 and "Chilonzor Phone Market" in r.text
+REMOVED = [("POST", "/api/v1/advisor/expansion"), ("POST", "/api/v1/advisor/business-plan"),
+           ("GET", "/api/v1/advisor/business-plan"), ("GET", "/api/v1/lender/applications/1/business-plan")]
+
+
+@pytest.mark.parametrize("method,path", REMOVED)
+def test_roadmap_endpoints_removed(client, chilonzor, method, path):
+    headers = {"X-API-Key": "demo-demo-bank"} if "/lender/" in path else chilonzor
+    r = client.request(method, path, headers=headers, json={})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+    paths = client.get("/openapi.json").json()["paths"]
+    assert not any("expansion" in p or "business-plan" in p for p in paths)
+
+
+def test_roadmap_questions_use_existing_numbers_only(client, chilonzor):
+    """Branch / business-plan questions get calculator blocks and no links to removed endpoints."""
+    for q in ("Ikkinchi filial ochsam bo'ladimi?", "biznes reja", "open a new branch with 300 mln"):
+        out = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": q}).json()
+        assert out["intent"] in ("credit", "loan_readiness")
+        assert all(b["type"] != "file" for b in out["blocks"])
+        endpoints = [c["action"]["endpoint"] for c in out["chips"]]
+        assert not any("expansion" in e or "business-plan" in e for e in endpoints)

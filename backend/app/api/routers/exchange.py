@@ -142,7 +142,7 @@ def exchange_deal_document(deal_id: int, db: DbDep, company: CompanyDep, lang: L
         raise not_found("deal", deal_id)
     doc = exchange.deal_document_html(db, d, lang)
     if format == "pdf":
-        from app.intelligence.advisor.finance import render_pdf
+        from app.core.pdf import render_pdf
 
         pdf = render_pdf(doc)
         if pdf is not None:

@@ -1,4 +1,4 @@
-"""Phase 5: credit maths, tax, loan readiness, expansion, business plan, chat fallback, dashboard."""
+"""Phase 5: credit maths, tax, loan readiness, chat fallback, dashboard."""
 
 import time
 
@@ -47,32 +47,6 @@ def test_loan_readiness_new_company(client):
                                                     "categories": ["rent"]}).json()["api_key"]
     r = client.get("/api/v1/advisor/loan-readiness", headers={"X-API-Key": key}).json()
     assert 0 <= r["score"] <= 100 and r["how_to_improve"]
-
-
-def test_expansion(client, chilonzor, realty):
-    g = client.post("/api/v1/advisor/expansion", headers=chilonzor,
-                    json={"category": "phone", "budget_uzs": 500_000_000}).json()
-    assert g["lines"] and all(li["units"] >= 0 for li in g["lines"]) and g["assumptions"]
-    assert g["stock_invested_uzs"] <= g["stock_budget_uzs"] and g["monthly_gross_profit_uzs"] > 0
-    h = client.post("/api/v1/advisor/expansion", headers=realty,
-                    json={"category": "house", "budget_uzs": 1_200_000_000}).json()
-    assert h["yield_options"] and all(y["apartment_price_uzs"] <= 1_200_000_000 for y in h["yield_options"])
-    nets = [y["net_yield_pct"] for y in h["yield_options"]]
-    assert nets == sorted(nets, reverse=True)
-    small = client.post("/api/v1/advisor/expansion", headers=chilonzor, json={"category": "phone", "budget_uzs": 1000})
-    assert small.status_code == 422
-
-
-def test_business_plan_html_and_json(client, chilonzor):
-    body = {"loan_amount_uzs": 100_000_000, "loan_months": 24, "purpose": "Ikkinchi do'kon ochish",
-            "expansion": {"category": "phone", "budget_uzs": 300_000_000}}
-    r = client.post("/api/v1/advisor/business-plan", headers={**chilonzor, "Accept-Language": "ru"}, json=body)
-    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
-    assert "Бизнес-план" in r.text and "Chilonzor Phone Market" in r.text and "8. " in r.text
-    pdf = client.post("/api/v1/advisor/business-plan", headers=chilonzor, json={**body, "format": "pdf"})
-    assert pdf.status_code == 200
-    j = client.post("/api/v1/advisor/business-plan", headers=chilonzor, json={**body, "format": "json"}).json()
-    assert j["summary_source"] == "rules" and j["loan"]["monthly_payment_uzs"] > 0 and j["expansion"]["lines"]
 
 
 @pytest.mark.parametrize("question,lang,key", [

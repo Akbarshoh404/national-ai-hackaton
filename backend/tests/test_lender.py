@@ -83,8 +83,11 @@ def test_loan_application_flow(client, sergeli):
     assert any(a["payload"].get("loan_application_id") == app["id"] for a in bank_alerts)
     seen = client.get(f"/api/v1/lender/applications/{app['id']}", headers=BANK).json()
     assert seen["snapshot"]["loan_readiness"]["score"] == snap["loan_readiness"]["score"]
-    plan = client.get(seen["business_plan_url"], headers=BANK)
-    assert plan.status_code == 200 and "Sergeli Avto" in plan.text
+    # the snapshot is complete without a business plan, and the response has no plan link
+    assert "business_plan_url" not in seen
+    assert {"loan_readiness", "cashflow", "audit_summary", "inventory", "credit", "collateral"} <= set(seen["snapshot"])
+    assert seen["snapshot"]["credit"]["monthly_payment_uzs"] > 0
+    assert client.get(f"/api/v1/lender/applications/{app['id']}/business-plan", headers=BANK).status_code == 404
     d = client.post(f"/api/v1/lender/applications/{app['id']}/decision", headers=BANK,
                     json={"status": "approved", "note": "Garov: avtomobillar"})
     assert d.json()["status"] == "approved"
