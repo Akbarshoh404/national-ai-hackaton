@@ -267,7 +267,7 @@ export function Page({
       <header className="glass relative z-20 flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 rounded-[36px] py-2 pr-3 pl-5 xl:flex-nowrap">
         <h1 className="text-[17px] leading-[24px] font-semibold whitespace-nowrap">{title}</h1>
         {tabs ? (
-          <nav aria-label={`${title} bo‘limlari`} className="seg max-w-full overflow-x-auto">
+          <nav aria-label={`${title} bo‘limlari`} className="seg max-w-full overflow-x-auto xl:shrink-0">
             {tabs.map((tab) => (
               <Link key={tab.key} href={tab.href} replace scroll={false} data-active={tab.key === active} aria-current={tab.key === active ? "page" : undefined} className="seg-item">
                 {tab.label}
@@ -276,7 +276,7 @@ export function Page({
           </nav>
         ) : null}
         {subtitle ? <p className="truncate-1 text-[14px] text-text-2">{subtitle}</p> : null}
-        <div className="ml-auto flex min-w-0 items-center justify-end gap-1">
+        <div className="ml-auto flex min-w-0 items-center justify-end gap-1 xl:flex-1 xl:basis-0">
           {source === "fixtures" ? <span className="mr-3 hidden text-[12px] text-muted whitespace-nowrap lg:inline">{t.shell.demoData}</span> : null}
           <button
             type="button"
