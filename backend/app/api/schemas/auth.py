@@ -164,6 +164,21 @@ class ComponentStatus(BaseModel):
     detail: str | None = None
 
 
+class ModelInfo(BaseModel):
+    """'Our model' card: which extractor runs first and how much of the recent market each provider read."""
+
+    model: str = Field(description="Local model name, e.g. qwen2.5:3b")
+    provider: str = Field(description="Provider label stored on listings, e.g. local:qwen2.5:3b")
+    provider_order: list[str]
+    local_reachable: bool
+    local_detail: str
+    window_hours: int
+    listings: int = Field(description="Telegram listings extracted in the window")
+    share: dict[str, float] = Field(description="Share of those listings per provider (0–1); "
+                                                "'unknown' = extracted before provider tracking")
+    counts: dict[str, int]
+
+
 class PingOut(BaseModel):
     ok: bool = True
 
@@ -172,6 +187,8 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     db: ComponentStatus
     llm: ComponentStatus
+    local_model: ComponentStatus = Field(ComponentStatus(status="disabled"),
+                                         description="Ollama model used first for extraction (detail = name)")
     telegram: ComponentStatus
     extractor: ComponentStatus
     bot: ComponentStatus

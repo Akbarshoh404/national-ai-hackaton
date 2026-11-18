@@ -14,6 +14,7 @@ os.environ.update({
     "WORKERS_EXTRACTOR": "false",
     "BOT_ENABLED": "false",
     "WORKERS_DECISIONS": "false",
+    "EXTRACT_PROVIDER_ORDER": "gemini,rules",  # never reach a real Ollama; local tests opt in
     "GEMINI_API_KEY": "",
     "TG_BOT_TOKEN": "",
     "ADMIN_KEY": "test-admin",

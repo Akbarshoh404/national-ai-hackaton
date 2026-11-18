@@ -87,6 +87,10 @@ typically a few minutes. **`--reset` drops every table first**, so don't run it 
 `backend/Dockerfile`, Docker build context `backend`, plan **Free**, health check path `/api/v1/ping`, and the
 same environment variables.
 
+> The local model (Ollama, see README §10.12) can't run on Render's free 512 MB plan. `render.yaml` sets
+> `EXTRACT_PROVIDER_ORDER=gemini,rules`. To use the local model, run the backend on a machine with Ollama (e.g.
+> your laptop behind a Cloudflare tunnel, §5).
+
 What happens on deploy:
 - Render injects `PORT` (usually 10000). The image runs
   `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}` with **one worker**.

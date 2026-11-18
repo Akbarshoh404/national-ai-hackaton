@@ -48,5 +48,7 @@ services:
         value: "true"
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
+      - key: EXTRACT_PROVIDER_ORDER   # no Ollama on the free plan: skip the local model
+        value: gemini,rules
       - key: USD_UZS
         value: "12700"

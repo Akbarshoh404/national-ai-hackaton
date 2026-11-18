@@ -161,28 +161,52 @@ def _finish(item: dict[str, Any], source: str) -> dict[str, Any]:
     return {**item, "missing_fields": missing, "confidence": confidence, "source": source}
 
 
+def _merge(o: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any] | None:
+    """Text fields from a model answer + numbers from the rule parser. None if the answer is unusable."""
+    if not isinstance(o, dict) or o.get("category") not in CATEGORIES:
+        return None
+    cat = o["category"]
+    attrs = extractor.clean_attrs(cat, o.get("attrs"))
+    item = {"category": cat, "brand": o.get("brand"), "model": o.get("model"),
+            "condition": o.get("condition") if o.get("condition") in ("new", "A", "B", "C", "used") else None,
+            "district": normalize_district(o.get("district")), "attrs": attrs,
+            "price": None, "currency": None}
+    if o.get("price") and rules.get("price"):  # numbers come from the rule parser, never the LLM
+        item["price"], item["currency"] = rules["price"], rules["currency"]
+    for k in ("model", "brand", "district", "condition"):
+        item[k] = item[k] or rules.get(k)
+    item["attrs"] = {**attrs, **rules["attrs"]}
+    return item
+
+
+def _gemini_parse(text: str, category_hint: str | None) -> dict[str, Any] | None:
+    out = llm.generate_json(
+        "Extract ONE item a shop owner typed (not an ad; it may have no price). Return a JSON array with one "
+        f"object using the schema. category_hint: {category_hint}\nText: {json.dumps(text, ensure_ascii=False)}",
+        system=extractor.SYSTEM_PROMPT, temperature=0.0, timeout=settings.LLM_TIMEOUT_S)
+    return out[0] if isinstance(out, list) and out and isinstance(out[0], dict) else None
+
+
 def parse_text(db: Session, text: str, category_hint: str | None = None) -> dict[str, Any]:
-    """LLM extraction with the extractor's schema when available; rule parser otherwise or on failure."""
+    """Same provider order as the extractor (EXTRACT_PROVIDER_ORDER): local model, Gemini, rule parser.
+
+    The rule parser always runs: it supplies every number and is the final fallback.
+    """
     rules = rule_parse(db, text, category_hint)
-    if llm.available():
-        out = llm.generate_json(
-            "Extract ONE item a shop owner typed (not an ad; it may have no price). Return a JSON array with one "
-            f"object using the schema. category_hint: {category_hint}\nText: {json.dumps(text, ensure_ascii=False)}",
-            system=extractor.SYSTEM_PROMPT, temperature=0.0, timeout=settings.LLM_TIMEOUT_S)
-        if isinstance(out, list) and out and isinstance(out[0], dict) and out[0].get("category") in CATEGORIES:
-            o = out[0]
-            cat = o["category"]
-            attrs = extractor.clean_attrs(cat, o.get("attrs"))
-            item = {"category": cat, "brand": o.get("brand"), "model": o.get("model"),
-                    "condition": o.get("condition") if o.get("condition") in ("new", "A", "B", "C", "used") else None,
-                    "district": normalize_district(o.get("district")), "attrs": attrs,
-                    "price": None, "currency": None}
-            if o.get("price") and rules.get("price"):  # numbers come from the rule parser, never the LLM
-                item["price"], item["currency"] = rules["price"], rules["currency"]
-            for k in ("model", "brand", "district", "condition"):
-                item[k] = item[k] or rules.get(k)
-            item["attrs"] = {**attrs, **rules["attrs"]}
-            return _finish(item, "llm")
+    for provider in settings.provider_order:
+        if provider == "rules":
+            break
+        out = None
+        if provider == "local" and not llm.local_suspended():
+            try:
+                out = extractor.local_extract(text, category_hint or "mixed")
+            except llm.LocalLLMError:
+                out = None
+        elif provider == "gemini" and llm.available():
+            out = _gemini_parse(text, category_hint)
+        merged = _merge(out, rules) if out else None
+        if merged is not None:
+            return _finish(merged, "llm")
     return _finish(rules, "rules")
 
 

@@ -118,6 +118,22 @@ def cmd_extract_once(args: argparse.Namespace) -> None:
         print(json.dumps(extractor.run_once(s, args.limit)))
 
 
+def cmd_reextract(args: argparse.Namespace) -> None:
+    """Re-run one provider on already-processed posts and count fields that differ from the stored listing."""
+    from app.core import db
+    from app.data_pipeline import extractor
+
+    with db.SessionLocal() as s:
+        r = extractor.reextract(s, args.provider, args.limit)
+    print(f"provider={r['provider']}  compared={r['compared']}  posts_with_changes={r['with_changes']}  "
+          f"fields_changed={r['fields_changed']}")
+    for field, n in sorted(r["by_field"].items(), key=lambda kv: -kv[1]):
+        print(f"  {n:4d}  {field}")
+    for p in r["posts"]:
+        if p["changed"]:
+            print(f"  raw_post {p['raw_post_id']}: was {p['was']} -> {p['now']}: {', '.join(p['changed'])}")
+
+
 def main(argv: list[str] | None = None) -> None:
     setup_logging()
     p = argparse.ArgumentParser(prog="python -m app.cli", description="Raft backend tools")
@@ -134,6 +150,10 @@ def main(argv: list[str] | None = None) -> None:
     e = sub.add_parser("extract-once", help="process pending raw posts")
     e.add_argument("--limit", type=int, default=None)
     e.set_defaults(fn=cmd_extract_once)
+    r = sub.add_parser("reextract", help="re-run one provider on processed posts and diff against stored listings")
+    r.add_argument("--provider", choices=["local", "gemini", "rules"], default="local")
+    r.add_argument("--limit", type=int, default=20)
+    r.set_defaults(fn=cmd_reextract)
     args = p.parse_args(argv)
     args.fn(args)
 

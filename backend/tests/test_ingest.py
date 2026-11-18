@@ -114,7 +114,7 @@ def test_extractor_with_mocked_llm(client, mock_llm):
         lst = {x.raw_post_id: x for x in db.query(Listing).filter(Listing.raw_post_id.in_(ids))}
         iphone = lst[ids[0]]
         assert iphone.price_uzs == 5_200_000 and iphone.currency == "UZS"
-        assert iphone.attrs == {"storage_gb": 128, "imei_registered": True}
+        assert iphone.attrs == {"storage_gb": 128, "imei_registered": True, "_extracted_by": "gemini"}
         assert iphone.seller_type == "shop" and iphone.source_url == "https://t.me/testphones/1"
         assert lst[ids[1]].currency == "USD" and lst[ids[1]].price_uzs == 255 * 12700
         car = lst[ids[3]]
@@ -122,13 +122,22 @@ def test_extractor_with_mocked_llm(client, mock_llm):
         assert car.attrs["mileage_km"] == 50000
 
 
-def test_extractor_failure_marks_failed(client, mock_llm):
+def test_extractor_failure_falls_through_or_fails(client, mock_llm, monkeypatch):
+    """A bad Gemini answer falls through to the rule parser; with no fallback left the post is FAILED."""
+    from app.core.config import settings
+
     with dbm.SessionLocal() as db:
         p = _post(db, "testphones", 50, "iPhone 12 128gb narxi 3.4 mln so'm")
+        q = _post(db, "testphones", 51, "iPhone 11 64gb narxi 2.9 mln so'm")
     mock_llm(lambda prompt, n: "not a list")
     with dbm.SessionLocal() as db:
-        extractor.run_once(db)
-        assert db.get(RawPost, p.id).processed == extractor.FAILED
+        extractor.process_batch(db, [db.get(RawPost, p.id)])
+        assert db.get(RawPost, p.id).processed in (extractor.DONE, extractor.SKIPPED)
+        assert db.get(RawPost, p.id).processed != extractor.FAILED
+    monkeypatch.setattr(settings, "EXTRACT_PROVIDER_ORDER", "gemini")
+    with dbm.SessionLocal() as db:
+        extractor.process_batch(db, [db.get(RawPost, q.id)])
+        assert db.get(RawPost, q.id).processed == extractor.FAILED
 
 
 def test_repost_and_deal_alert(client, mock_llm):

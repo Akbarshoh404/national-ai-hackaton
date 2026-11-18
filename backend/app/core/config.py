@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_S: float = 15.0
     EXTRACT_BATCH_SIZE: int = 15
 
+    # --- local LLM (Ollama) ---------------------------------------------------
+    OLLAMA_URL: str = "http://127.0.0.1:11434"
+    LOCAL_MODEL: str = "qwen2.5:3b"
+    LOCAL_TIMEOUT_S: float = 30.0
+    #: extraction providers tried in order: local (Ollama), gemini, rules
+    EXTRACT_PROVIDER_ORDER: str = "local,gemini,rules"
+
     # --- market ---------------------------------------------------------------
     USD_UZS: float = 12700.0
     MARKET_WINDOW_DAYS: int = 60
@@ -72,6 +79,15 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def provider_order(self) -> list[str]:
+        """Valid, de-duplicated extraction providers from EXTRACT_PROVIDER_ORDER."""
+        out: list[str] = []
+        for p in (x.strip().lower() for x in self.EXTRACT_PROVIDER_ORDER.split(",")):
+            if p in ("local", "gemini", "rules") and p not in out:
+                out.append(p)
+        return out or ["rules"]
 
     @property
     def llm_configured(self) -> bool:

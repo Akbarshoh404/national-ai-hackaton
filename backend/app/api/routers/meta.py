@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter
 from sqlalchemy import select, text
 
@@ -15,13 +17,15 @@ from app.api.schemas.auth import (
     HealthResponse,
     LabelSet,
     MetaResponse,
+    ModelInfo,
     PingOut,
     StoreRef,
 )
 from app.core import catalog, fx, llm, workers
 from app.core.config import CREDIT_PRODUCTS, settings
+from app.core.db import utcnow
 from app.core.deps import DbDep, OptionalCompanyDep
-from app.core.models import Company, Store
+from app.core.models import Company, Listing, Store
 
 router = APIRouter(tags=["meta"])
 VERSION = "1.0.0"
@@ -71,6 +75,21 @@ def meta_get(db: DbDep, company: OptionalCompanyDep) -> MetaResponse:
     )
 
 
+@router.get("/model", response_model=ModelInfo)
+def model_info(db: DbDep) -> ModelInfo:
+    """'Our model' card: local model name, provider order, last-24 h share of listings per provider. No auth."""
+    since = utcnow() - timedelta(hours=24)
+    counts: dict[str, int] = {}
+    for attrs in db.scalars(select(Listing.attrs).where(Listing.origin == "telegram", Listing.created_at >= since)):
+        key = (attrs or {}).get("_extracted_by") or "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    total = sum(counts.values())
+    reachable, detail = llm.local_status()
+    return ModelInfo(model=settings.LOCAL_MODEL, provider=llm.local_label(), provider_order=settings.provider_order,
+                     local_reachable=reachable, local_detail=detail, window_hours=24, listings=total,
+                     share={k: round(v / total, 3) for k, v in counts.items()} if total else {}, counts=counts)
+
+
 @router.get("/ping", response_model=PingOut)
 def ping() -> PingOut:
     """Liveness for uptime pingers (keeps a free Render service awake). No auth, no database access."""
@@ -88,6 +107,12 @@ def health(db: DbDep) -> HealthResponse:
     llm_s, llm_d = llm.status()
     comps = {name: ComponentStatus(status=s, detail=d) for name, (s, d) in workers.STATUS.items()}
     overall = "ok" if db_status.status == "ok" and all(c.status != "error" for c in comps.values()) else "degraded"
+    if "local" in settings.provider_order:
+        ok, detail = llm.local_status()
+        local = ComponentStatus(status="ok" if ok else "error", detail=detail)
+    else:
+        local = ComponentStatus(status="disabled", detail=f"{settings.LOCAL_MODEL} (not in EXTRACT_PROVIDER_ORDER)")
     return HealthResponse(status=overall, db=db_status, llm=ComponentStatus(status=llm_s, detail=llm_d),
+                          local_model=local,
                           telegram=comps["telegram"], extractor=comps["extractor"], bot=comps["bot"],
                           version=VERSION)

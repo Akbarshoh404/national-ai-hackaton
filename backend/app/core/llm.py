@@ -1,4 +1,4 @@
-"""Thin provider wrapper around Gemini (google-genai).
+"""LLM providers: Gemini (google-genai) and a local model served by Ollama.
 
 The LLM only reads and explains; it never produces numbers that the API returns
 as facts. Every caller must handle a `None` result with a deterministic fallback,
@@ -12,6 +12,8 @@ import logging
 import re
 import time
 from typing import Any
+
+import httpx
 
 from app.core.config import settings
 
@@ -121,3 +123,77 @@ def transcribe(audio: bytes, mime_type: str, timeout: float | None = None) -> st
              "Transcribe this voice note verbatim. It is in Uzbek or Russian. Return only the transcript."]
     out = _call(parts, json_mode=False, temperature=0.0, timeout=timeout or 30)
     return out.strip() if out else None
+
+
+# --------------------------------------------------------------------------- #
+# Local provider: Ollama (used only for extraction / input parsing)            #
+# --------------------------------------------------------------------------- #
+
+LOCAL_DOWN_COOLDOWN_S = 30.0
+_local_down_until = 0.0
+_local_status_cache: tuple[float, bool, str] | None = None
+
+
+class LocalLLMError(Exception):
+    """Local model failed: `kind` is "down", "timeout", "http" or "invalid_json"."""
+
+    def __init__(self, kind: str, detail: str = ""):
+        super().__init__(f"{kind}: {detail}")
+        self.kind = kind
+
+
+def local_label() -> str:
+    return f"local:{settings.LOCAL_MODEL}"
+
+
+def local_suspended() -> bool:
+    """True while Ollama is in its cooldown after a connection failure (avoids paying a timeout per post)."""
+    return time.monotonic() < _local_down_until
+
+
+def local_chat_json(messages: list[dict[str, str]], timeout: float | None = None) -> Any:
+    """`POST {OLLAMA_URL}/api/chat` (stream off, JSON format, temperature 0, 2k context) → parsed JSON.
+
+    Raises `LocalLLMError` on connection failure, timeout, HTTP error or non-JSON output.
+    """
+    global _local_down_until
+    if local_suspended():
+        raise LocalLLMError("down", "cooling down after a connection failure")
+    payload = {"model": settings.LOCAL_MODEL, "messages": messages, "stream": False, "format": "json",
+               "options": {"temperature": 0, "num_ctx": 2048}}
+    try:
+        resp = httpx.post(f"{settings.OLLAMA_URL.rstrip('/')}/api/chat", json=payload,
+                          timeout=timeout or settings.LOCAL_TIMEOUT_S)
+    except httpx.TimeoutException as exc:
+        raise LocalLLMError("timeout", type(exc).__name__) from exc
+    except httpx.TransportError as exc:  # connection refused, DNS, reset ...
+        _local_down_until = time.monotonic() + LOCAL_DOWN_COOLDOWN_S
+        raise LocalLLMError("down", type(exc).__name__) from exc
+    if resp.status_code != 200:
+        raise LocalLLMError("http", f"{resp.status_code} {resp.text[:120]}")
+    try:
+        content = resp.json()["message"]["content"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise LocalLLMError("invalid_json", "unexpected Ollama response") from exc
+    parsed = parse_json(content)
+    if parsed is None:
+        raise LocalLLMError("invalid_json", content[:120] if isinstance(content, str) else "")
+    return parsed
+
+
+def local_status(cache_s: float = 30.0) -> tuple[bool, str]:
+    """(reachable with the model pulled, detail). Cached so /health stays fast."""
+    global _local_status_cache
+    now = time.monotonic()
+    if _local_status_cache and now - _local_status_cache[0] < cache_s:
+        return _local_status_cache[1], _local_status_cache[2]
+    model = settings.LOCAL_MODEL
+    try:
+        r = httpx.get(f"{settings.OLLAMA_URL.rstrip('/')}/api/tags", timeout=1.5)
+        names = {m.get("name") for m in r.json().get("models", [])}
+        ok = model in names or f"{model}:latest" in names
+        detail = f"{model} ready" if ok else f"Ollama reachable but `{model}` is not pulled (ollama pull {model})"
+    except Exception as exc:
+        ok, detail = False, f"Ollama not reachable at {settings.OLLAMA_URL} ({type(exc).__name__})"
+    _local_status_cache = (now, ok, detail)
+    return ok, detail

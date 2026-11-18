@@ -293,7 +293,11 @@ Everything comes from environment variables (or `backend/.env`). Defaults are sh
 | `GEMINI_API_KEY` | — | Optional. Without it every feature uses its rule-based fallback (voice and invoice OCR return 503) |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Model name |
 | `LLM_TIMEOUT_S` | `15` | Timeout for every in-request LLM call |
-| `EXTRACT_BATCH_SIZE` | `15` | Posts per extractor LLM call |
+| `EXTRACT_BATCH_SIZE` | `15` | Posts per Gemini extraction call |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server for the local model |
+| `LOCAL_MODEL` | `qwen2.5:3b` | Local model (must be pulled: `ollama pull qwen2.5:3b`) |
+| `LOCAL_TIMEOUT_S` | `30` | Per-post timeout for the local model |
+| `EXTRACT_PROVIDER_ORDER` | `local,gemini,rules` | Extraction / `/input/parse` providers, tried in order |
 | `USD_UZS` | `12700` | Fallback FX rate (refreshed from cbu.uz via `/admin/fx/refresh`) |
 | `MARKET_WINDOW_DAYS` | `60` | Comparable listings window |
 | `MIN_COMPARABLES` | `5` | Minimum matches for a pricing tier |
@@ -368,8 +372,9 @@ acting user.
 | GET | `/companies?role&category` | Directory with reputation (rating, ratings count, deals) |
 | GET | `/companies/{id}` | One company's public profile |
 | GET | `/meta` | Dropdowns and labels: categories, conditions, attribute fields, districts, roles, user roles, offer kinds, credit products, decision types, block types, integration kinds, plans, FX, currency formats, demo companies, and your stores (when called with a key) |
-| GET | `/health` | DB, LLM, Telegram, extractor, bot status |
+| GET | `/health` | DB, LLM, local model (Ollama), Telegram, extractor, bot status |
 | GET | `/ping` | `{"ok": true}` — no auth, no database; for uptime pingers |
+| GET | `/model` | "Our model" card — local model name, provider order, 24 h share of listings per provider (no auth) |
 | GET | `/dashboard` | KPIs, top alerts, sourcing deals, open RFQs, recent deals, 6-month cash flow, **top 5 decisions**, **stock tiles** |
 | GET / POST / PATCH | `/stores`, `/stores/{id}` | Stores of the company |
 | GET / POST / DELETE | `/users`, `/users/{id}` | Users with roles (owner only; the key is shown once) |
@@ -526,11 +531,14 @@ acting user.
    `narx`, `цена`, or a 6+ digit number).
 2. **Remove personal data** before storing (ZRU-547): Uzbek phone numbers, `@usernames`, `t.me` and other links.
    Senders of group messages are never stored. The account never posts.
-3. **Extract:** batches of 15 posts, one Gemini call in JSON mode at temperature 0. The prompt covers uz (Latin
-   and Cyrillic) and ru, skip rules, currency rules (`5.2 mln` = 5,200,000; `250 ming` = 250,000; car/house
-   prices without a currency are USD) and per-category attributes. A wrong-length or invalid answer is retried
-   once in halves, and then the posts are marked failed. **Without a key, a rule parser** (price regexes, a
-   model dictionary from the market, year, mileage, rooms, area) does the job.
+3. **Extract** through the provider chain `EXTRACT_PROVIDER_ORDER` (default `local,gemini,rules`, see
+   [§10.12](#1012-local-model-ollama)). The **local model** (Ollama) reads one post per call. **Gemini** reads
+   batches of 15 posts in one JSON-mode call; a wrong-length or invalid answer is retried once in halves. The
+   **rule parser** (price regexes, a model dictionary from the market, year, mileage, rooms, area) never fails.
+   A post that a provider can't handle falls through to the next one. The prompts cover uz (Latin and Cyrillic)
+   and ru, skip rules, currency rules (`5.2 mln` = 5,200,000; `250 ming` = 250,000; car/house prices without a
+   currency are USD) and per-category attributes. Model-read prices are cross-checked against the rule parser
+   (more than 1% apart → the rule price wins). Each listing records its extractor in `attrs._extracted_by`.
 4. **Validate:** convert to UZS and USD, drop prices outside 0.3×–3× of the fair price, and flag reposts as
    duplicates (same text hash, or same model and price within 7 days from another source).
 5. **After insert:** invalidate the price cache, publish `listing.created` over SSE, and run the **deal check**.
@@ -684,6 +692,70 @@ The roadmap maker (expansion planner and business-plan generator) was removed; s
 - **IMEI:** Luhn check + local demo TAC table. No external IMEI services.
 - **Links:** DB first, then a single read-only Telegram fetch through the normal pipeline.
 
+### 10.12 Local model (Ollama)
+
+Extraction (and `/input/parse`) runs first on a **local model served by Ollama**, by default `qwen2.5:3b`. It
+needs no API key, sends no data off the machine and has no per-call cost. Copilot answers and audit
+recommendations do **not** use it: they stay on Gemini or the templates.
+
+**Setup:**
+
+```bash
+ollama pull qwen2.5:3b
+```
+```bash
+curl http://127.0.0.1:11434/api/tags
+```
+
+Ollama runs as a background service after installing it from https://ollama.com. The settings are `OLLAMA_URL`
+(default `http://127.0.0.1:11434`), `LOCAL_MODEL`, `LOCAL_TIMEOUT_S` (30) and `EXTRACT_PROVIDER_ORDER`.
+
+**How it is called:** `POST {OLLAMA_URL}/api/chat` with `stream: false`, `format: "json"`,
+`options: {temperature: 0, num_ctx: 2048}`.
+- **One post per call** (small models are steadier that way), with the same instructions and JSON schema as
+  Gemini plus **6 short few-shot examples**: a phone in Uzbek Latin with `mln`, a car with `probeg` /
+  `pozitsiya` / `kraskasi yo'q`, a Russian rental with furniture and utilities, a Russian laptop priced in `$`,
+  an apartment in Uzbek Cyrillic with no currency, and a "sotib olaman" buying post that must return
+  `skip: true`.
+- The prompt is about 1,600 tokens; posts are capped at 600 characters so prompt + answer fit the 2,048-token
+  window.
+- On this machine a post takes about 0.5–2 s.
+
+**Fallback chain** (`local → gemini → rules`, per post):
+
+| Local model outcome | What happens |
+|---|---|
+| valid JSON that passes the extraction schema (`ExtractedItem`) | used; listing gets `_extracted_by: "local:qwen2.5:3b"` |
+| invalid JSON, schema failure, HTTP error, timeout | this post falls through to Gemini (if a key is set), then the rule parser |
+| Ollama not running (connection refused) | local is skipped for the rest of the batch and paused for 30 s |
+
+**Price safety:** the model reads the price, and the rule parser's regex price for the same post is the check.
+If both found a price and they differ by more than 1% (after the same currency and "mln" normalization), the rule
+price is used and a warning is logged. This applies to Gemini output as well.
+
+The regex parser ranks all candidates rather than taking the first one:
+- a price after `narxi` / `нархи` / `цена` / 💰 / 💵 beats one followed by a currency or `mln`/`ming`, which beats
+  a bare `$`;
+- `4 mln 600 ming` is read as 4,600,000;
+- installment terms (`79$ 6 oy`) and model numbers (`A54 $260`) are not mistaken for prices.
+
+Long posts are clipped head + tail, because shops put the price at the bottom.
+
+**Visibility:**
+- `GET /api/v1/health` → `local_model`: reachable and pulled, or why not.
+- `GET /api/v1/model` (no auth) → model name, provider order, and the share of the last 24 h of Telegram
+  listings each provider extracted. This is the "Our model" card.
+
+**Comparing providers:**
+
+```bash
+python -m app.cli reextract --provider local --limit 50
+```
+
+It re-runs one provider (`local`, `gemini` or `rules`) on already-processed posts, **without writing**, and
+prints how many fields differ from the stored listing (category, brand, model, condition, price, district,
+seller type, each attribute).
+
 ---
 
 ## 11. Telegram: ingestion and bot
@@ -791,7 +863,7 @@ names, types, units and labels are served by `/meta`. Migrations: `alembic/versi
 cd backend && pytest -q
 ```
 
-152 tests run on a temporary SQLite database with seed data, **no LLM and no Telegram**. Test modules that change
+162 tests run on a temporary SQLite database with seed data, **no LLM and no Telegram**. Test modules that change
 seed data use a module-scoped reseed fixture.
 
 | Test file | Covers |
@@ -812,6 +884,7 @@ seed data use a module-scoped reseed fixture.
 | `test_v2_exchange_integrations.py` | counter-offer flow, deal document, demand by district, radar fields, Didox sync catches planted errors, bot additions |
 | `test_regressions.py` | bugs found by the live smoke run |
 | `test_architecture.py` | import-direction rules of the modular monolith, package READMEs |
+| `test_local_llm.py` | local model (mocked Ollama): one post per call + few-shots, invalid JSON → Gemini, timeout → rules, Ollama down → skipped, price mismatch → rule price, `/input/parse` order, copilot never uses it, `/health` + `/model`, `reextract` |
 | `test_hosting.py` | `/ping` without auth or DB, Neon pool settings, `PORT`, lazy pandas/openpyxl/WeasyPrint, workers off without secrets |
 
 ```bash

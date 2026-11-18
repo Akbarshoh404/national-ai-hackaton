@@ -369,3 +369,91 @@ superseded by this one.
 - `/meta`, `/dashboard` and the bot never referenced the roadmap feature, so they needed no change.
 - **Problem #20 stays covered** by `/advisor/chat`, `/advisor/cashflow`, `/advisor/credit`, `/advisor/tax`,
   `/advisor/loan-readiness`, `/advisor/lenders` and `/advisor/loan-applications` (unchanged).
+
+---
+
+# Local model as the first extractor (branch `local-llm`)
+
+- **Where:** the provider lives in `app/core/llm.py` (`local_chat_json`, `local_status`). The spec said
+  `app/services/llm.py`, but that path became `core/llm.py` in the modular refactor. It calls
+  `POST {OLLAMA_URL}/api/chat` with `stream: false`, `format: "json"`, `options: {temperature: 0, num_ctx: 2048}`
+  via plain `httpx`. Gemini functions (`generate_json`, `generate_text`, `available`) are untouched, so the copilot
+  and audit recommendations never reach the local model (tested).
+- **Provider chain:** `EXTRACT_PROVIDER_ORDER` (default `local,gemini,rules`) is used by the extractor and by
+  `/input/parse`. Each post keeps the first valid result. Unavailable providers are skipped (no Ollama → skip
+  local; no key → skip Gemini).
+  - **Changed behaviour:** a Gemini failure now falls through to the rule parser instead of marking the post
+    FAILED. Posts are FAILED only when no provider in the order produced a result (e.g. `EXTRACT_PROVIDER_ORDER=gemini`).
+- **One post per local call**, with the Gemini instructions adapted from "array of N objects" to "one object".
+  A guard raises at import if `SYSTEM_PROMPT` changes and the two drift apart.
+- **Six few-shot examples**, as specified. Their answers omit null fields and use compact JSON.
+- **Token budget (measured with Ollama on qwen2.5:3b):**
+  - The system prompt alone is 840 tokens; with the 6 examples as first written, about 1,790.
+  - A long post pushed the total to 2,012 of 2,048, which left the model no room to answer.
+  - After compacting the examples and capping posts at 600 characters (`LOCAL_MAX_POST_CHARS`), the baseline is
+    about 1,600 and the worst case about 1,840, which leaves room for the ~100–200-token answer.
+  - `num_ctx` stays at the specified 2,048.
+- **Validation:** there was no Pydantic model for raw extraction output (the extractor validated dicts by hand),
+  so `ExtractedItem` was added. It mirrors the prompt's JSON schema (extra keys ignored, so the Gemini `i`
+  field is fine) and is applied to local output; schema failures fall through. The existing `validate()`
+  (categories, currency, attribute cleaning, outliers, reposts) still runs on every provider's output.
+- **Failure handling:**
+  - invalid JSON, schema failure, HTTP error or timeout → this post falls through;
+  - connection refused → local is skipped for the rest of the batch and paused for 30 s
+    (`LOCAL_DOWN_COOLDOWN_S`), so an Ollama outage doesn't cost a timeout per post.
+- **Price safety:** after the same normalization (`normalize_price`: currency aliases, missing currency, dropped
+  "mln"), a model price that differs by more than 1% from the rule parser's regex price is replaced by the rule
+  price, with a warning logged. It applies to Gemini output too. With no regex price, the model price stands
+  (then `validate()` and the outlier check still apply).
+- **`attrs._extracted_by`** is `local:<model>`, `gemini` or `rules`. Keys starting with `_` are internal: they
+  are ignored by `reextract` comparisons and don't affect pricing. Listings extracted before this change count
+  as `unknown` on `/model`.
+- **`/health`** gained a `local_model` component (an additive field). An unreachable local model reports
+  `error` but doesn't make the overall status `degraded`, because the chain falls back. The check (`/api/tags`,
+  1.5 s timeout) is cached for 30 s.
+- **`/model`** (no auth) counts Telegram listings created in the last 24 h by `_extracted_by` (in Python, so it
+  works on SQLite and PostgreSQL alike).
+- **`reextract`** never writes. It runs one provider on processed posts, puts the result through `validate()`,
+  and diffs category, brand, normalized model, condition, price (1% tolerance), district, seller type and each
+  attribute against the stored listing.
+- **Tests** mock `httpx` inside `core.llm`. The suite defaults to `EXTRACT_PROVIDER_ORDER=gemini,rules` so it
+  never reaches a real Ollama that happens to run on the developer's machine.
+- **Deployment note:** Render's free plan can't run Ollama (512 MB). There, `local` is skipped automatically
+  (connection refused → cooldown); set `EXTRACT_PROVIDER_ORDER=gemini,rules` to avoid the attempt altogether.
+
+## Rule price parser rewritten after the first real run
+
+The first real run (20 posts from the user's channels) showed that **the specified price-safety rule made prices
+worse**. The rule trusts the regex parser, and the regex took the *first* price-like match.
+
+**What the old parser got wrong:**
+- "💰 225$ … Bosh tolov 79$ 6 oy" (an installment plan) → **6 USD**: the `$ number` pattern grabbed "$ 6".
+- "Депозит: 2000 у.е. • Цена: 3500 у.е" → the deposit.
+- "Narxi: 4 mln 600 ming so'm" → 4,000,000: compound amounts weren't understood.
+
+On those posts the local model was right and got overruled. One wrong price (6 USD) even produced a false
+"sourcing deal" alert.
+
+**The rule stays as specified; the parser is fixed instead** (`price_candidates` / `parse_price`). It now
+ranks every candidate rather than taking the first:
+- keyword-anchored (`narxi`, `нархи`, `цена`, 💰, 💵) beats a postfix currency or unit, which beats a bare `$`
+  prefix;
+- `X mln Y ming` is one amount;
+- a number followed by `oy` / `мес` is an installment term and is ignored;
+- a number glued to letters ("A54") is a model name;
+- a currency sign followed by a number is that number's prefix.
+
+All earlier test strings still parse the same, and regression tests cover the real-world patterns. The rule
+parser fallback and `/input/parse` benefit too.
+
+**Long posts:** the local model now sees the head (60%) and the tail of posts over 600 characters. Shops put the
+price line at the bottom, and a plain head cut lost it.
+
+**Real run** (same 20 posts, qwen2.5:3b on the developer laptop):
+- After the fixes: **15 listings, 5 skipped, 0 failed, 33 s** (about 1.7 s per post). Every price correct;
+  one mismatch, where the rule rightly fixed a currency the model got wrong ("3500 у.е." read as so'm).
+- Before the fixes: 12 listings, 3 wrong prices, 2 good posts lost as outliers.
+- The first run's 12 listings and the one false alert were removed before re-running.
+- Remaining model errors: "holati ideal" read as `new` (should be `A`), "#Pro13" read as a MacBook, and one sale
+  post skipped as "buying". These are visible with `reextract` and are the next things to tune (few-shots).
+- `reextract --provider rules` on the same posts: the rule parser alone would skip 4 of them and lose 65 fields.
