@@ -13,7 +13,8 @@ import asyncio
 import hashlib
 import logging
 import re
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -151,23 +152,86 @@ async def run_listener() -> None:
         _client = None
 
 
-def _save_sync(source: str, msg_id: int, date: datetime, text: str, has_photo: bool) -> None:
+def _save_sync(source: str, msg_id: int, date: datetime, text: str, has_photo: bool) -> bool:
+    """Store one post (filter + PII strip + dedupe). True when a new row was inserted."""
     with dbm.SessionLocal() as db:
         if save_post(db, source, msg_id, date, text, has_photo):
             src = db.scalar(select(Source).where(Source.username == source))
             if src and msg_id > src.last_msg_id:
                 src.last_msg_id = msg_id
                 db.commit()
+            return True
+    return False
 
 
-async def run_history(limit: int | None = None, allow_file: bool = False) -> dict[str, int]:
-    """Import recent history for every active source (FloodWait-aware, 3 s pause between sources).
+def _new_stats() -> dict[str, Any]:
+    return {"scanned": 0, "kept": 0, "new": 0, "skipped": 0, "oldest": None, "error": None}
 
-    Returns the number of messages scanned per source (saving is idempotent).
+
+async def _import_source(client: Any, src: Source, limit: int | None, cutoff: datetime | None,
+                         stats: dict[str, Any]) -> None:
+    """Walk one source newest-first; stop at `limit` messages or the first one older than `cutoff`.
+
+    Without a cutoff only messages newer than `last_msg_id` are read (the original incremental mode). With a
+    cutoff the whole window is walked and the unique (source, msg_id) key drops posts already stored.
+    FloodWait sleeps and resumes from the last message handled, so nothing is read or counted twice.
     """
     from telethon.errors import FloodWaitError
 
-    limit = limit or settings.TG_HISTORY_LIMIT
+    min_id = 0 if cutoff else (src.last_msg_id or 0)
+    offset_id = 0
+    seen_groups: set[int] = set()
+    while True:
+        try:
+            remaining = None if limit is None else limit - stats["scanned"]
+            if remaining is not None and remaining <= 0:
+                return
+            async for msg in client.iter_messages(src.username, limit=remaining, min_id=min_id,
+                                                  offset_id=offset_id):
+                date = msg.date if msg.date.tzinfo else msg.date.replace(tzinfo=UTC)
+                if cutoff and date < cutoff:
+                    return  # newest-first: everything after this is older still
+                offset_id = msg.id
+                stats["scanned"] += 1
+                stats["oldest"] = date
+                if msg.grouped_id and (not msg.message or msg.grouped_id in seen_groups):
+                    stats["skipped"] += 1  # album: the caption is taken once
+                    continue
+                if msg.grouped_id:
+                    seen_groups.add(msg.grouped_id)
+                text = msg.message or ""
+                if not is_offer(text):
+                    stats["skipped"] += 1
+                    continue
+                stats["kept"] += 1
+                if await asyncio.to_thread(_save_sync, src.username, msg.id, date, text, msg.photo is not None):
+                    stats["new"] += 1
+            return
+        except FloodWaitError as e:
+            log.warning("flood wait %ss on %s; resuming after it", e.seconds, src.username)
+            await asyncio.sleep(e.seconds + 1)
+
+
+def format_history_line(username: str, s: dict[str, Any]) -> str:
+    oldest = s["oldest"].strftime("%Y-%m-%d %H:%M") if s["oldest"] else "—"
+    line = (f"@{username:<28} scanned {s['scanned']:>5}  kept {s['kept']:>4} (new {s['new']:>4})  "
+            f"skipped {s['skipped']:>5}  oldest {oldest}")
+    return line + (f"  FAILED: {s['error']}" if s["error"] else "")
+
+
+async def run_history(limit: int | None = None, allow_file: bool = False, days: int | None = None,
+                      progress: Callable[[str], None] | None = None) -> dict[str, dict[str, Any]]:
+    """Import history for every active source (FloodWait-aware, 3 s pause between sources).
+
+    `days`: every message from the last N days (UTC), newest-first, stopping at the first older one.
+    `limit`: at most N messages per source. With both, whichever stops first wins; with neither,
+    `TG_HISTORY_LIMIT` applies. A failing source (private, renamed …) is reported and skipped.
+    Returns per-source stats: scanned, kept (has a price), new (inserted), skipped, oldest, error.
+    """
+    if limit is None and days is None:
+        limit = settings.TG_HISTORY_LIMIT
+    cutoff = datetime.now(UTC) - timedelta(days=days) if days else None
+    say = progress or (lambda line: log.info("history %s", line))
     client = _client
     own = client is None
     if own:
@@ -176,34 +240,33 @@ async def run_history(limit: int | None = None, allow_file: bool = False) -> dic
         if not await client.is_user_authorized():
             await client.disconnect()
             raise RuntimeError("Telegram session is not authorized; run `python -m app.cli tg-login`")
-    stats: dict[str, int] = {}
+    stats: dict[str, dict[str, Any]] = {}
     try:
         with dbm.SessionLocal() as db:
             active = list(sources.active_sources(db).values())
         for i, src in enumerate(active):
-            scanned = 0
-            while True:
-                try:
-                    async for msg in client.iter_messages(src.username, limit=limit, min_id=src.last_msg_id or 0):
-                        if msg.grouped_id and not msg.message:
-                            continue
-                        await asyncio.to_thread(_save_sync, src.username, msg.id, msg.date, msg.message or "",
-                                                msg.photo is not None)
-                        scanned += 1
-                    break
-                except FloodWaitError as e:
-                    log.warning("flood wait %ss on %s", e.seconds, src.username)
-                    await asyncio.sleep(e.seconds + 1)
-                except Exception as exc:
-                    log.warning("history failed for %s: %s", src.username, type(exc).__name__)
-                    break
-            stats[src.username] = scanned
+            s = stats[src.username] = _new_stats()
+            try:
+                await _import_source(client, src, limit, cutoff, s)
+            except Exception as exc:  # private / renamed / deleted channel, network …
+                s["error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
+                log.warning("history failed for %s: %s", src.username, s["error"])
+            say(format_history_line(src.username, s))
             if i < len(active) - 1:
                 await asyncio.sleep(3)
     finally:
         if own:
             await client.disconnect()
     return stats
+
+
+def history_summary(stats: dict[str, dict[str, Any]]) -> str:
+    failed = [u for u, s in stats.items() if s["error"]]
+    tot = {k: sum(s[k] for s in stats.values()) for k in ("scanned", "kept", "new", "skipped")}
+    oldest = min((s["oldest"] for s in stats.values() if s["oldest"]), default=None)
+    text = (f"{len(stats)} sources: scanned {tot['scanned']}, kept {tot['kept']} (new {tot['new']}), "
+            f"skipped {tot['skipped']}, oldest {oldest.strftime('%Y-%m-%d') if oldest else '—'}")
+    return text + (f"; failed: {', '.join('@' + u for u in failed)}" if failed else "; failed: none")
 
 
 def connected() -> bool:

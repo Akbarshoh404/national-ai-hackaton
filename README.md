@@ -219,7 +219,8 @@ npx openapi-typescript http://localhost:8000/openapi.json -o src/api/schema.ts
 | `python -m app.cli seed --reset` | Drop everything, migrate, load all demo data (≈10 s) |
 | `python -m app.cli tg-login` | Interactive Telegram login; prints `TG_SESSION=...` for servers |
 | `python -m app.cli tg-resolve` | Find `@usernames` for the channel titles in `sources.yaml`, with confirmation |
-| `python -m app.cli tg-history --limit 3000` | Import channel history (FloodWait-aware) |
+| `python -m app.cli tg-history --limit 3000` | Import the newest messages since the last import, at most N per source (FloodWait-aware) |
+| `python -m app.cli tg-history --days 30` | Import **every** message from the last 30 days (UTC) per active source, newest-first, stopping at the cutoff. Combine with `--limit` (whichever stops first). Prints scanned / kept (has a price) / skipped / oldest date per source, plus a summary; a failing source (private, renamed) is reported and skipped. Re-running only adds new posts |
 | `python -m app.cli extract-once [--limit N]` | Process pending raw posts now |
 
 ---
@@ -490,7 +491,7 @@ acting user.
 |---|---|---|
 | GET | `/admin/status` | Raw-post counters, listings, active sources, worker states, FX |
 | GET / POST / PATCH | `/admin/sources`, `/admin/sources/{id}` | Telegram sources (the listener reloads without a restart) |
-| POST | `/admin/telegram/history?limit` | Background history import |
+| POST | `/admin/telegram/history?limit&days` | Background history import (`days=30`: everything from the last 30 days) |
 | POST | `/admin/extract/run?limit` | Run the extractor now |
 | GET | `/admin/raw-posts?processed` | Raw posts (0 new, 1 done, 2 failed, 3 skipped) |
 | GET / POST | `/admin/fx/refresh` | Pull today's USD/UZS rate from cbu.uz |
@@ -785,7 +786,7 @@ usernames you confirm back to `sources.yaml` and the database. Sources can also 
 ### Import and run
 
 ```bash
-python -m app.cli tg-history --limit 3000
+python -m app.cli tg-history --days 30
 ```
 
 The live listener starts with the server (`WORKERS_TELEGRAM=true`). The extractor processes the backlog every

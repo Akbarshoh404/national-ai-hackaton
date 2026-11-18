@@ -78,22 +78,26 @@ def admin_update_source(source_id: int, body: SourcePatch, db: DbDep) -> SourceO
 
 
 @router.post("/telegram/history", response_model=JobStarted, status_code=202)
-async def admin_telegram_history(limit: int | None = Query(None, ge=1, le=20000)) -> JobStarted:
-    """Import channel history in the background (FloodWait-aware)."""
+async def admin_telegram_history(limit: int | None = Query(None, ge=1, le=20000),
+                                 days: int | None = Query(None, ge=1, le=365,
+                                                          description="Every message from the last N days")
+                                 ) -> JobStarted:
+    """Import channel history in the background (FloodWait-aware). `limit` and/or `days`."""
     if not (settings.telegram_configured and settings.TG_SESSION):
         raise AppError("telegram_not_configured", "Set TG_API_ID, TG_API_HASH and TG_SESSION", 503)
 
     async def job() -> None:
         try:
-            stats = await telegram_ingest.run_history(limit)
-            log.info("history import finished: %s", stats)
+            stats = await telegram_ingest.run_history(limit, days=days)
+            log.info("history import finished: %s", telegram_ingest.history_summary(stats))
         except Exception:
             log.exception("history import failed")
 
     task = asyncio.create_task(job())
     _jobs.add(task)
     task.add_done_callback(_jobs.discard)
-    return JobStarted(started=True, detail=f"history import started (limit={limit or settings.TG_HISTORY_LIMIT})")
+    window = f"days={days}, limit={limit}" if days else f"limit={limit or settings.TG_HISTORY_LIMIT}"
+    return JobStarted(started=True, detail=f"history import started ({window})")
 
 
 @router.post("/extract/run", response_model=ExtractResult)

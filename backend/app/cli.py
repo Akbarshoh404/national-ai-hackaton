@@ -1,6 +1,6 @@
 """Command line: `python -m app.cli <command>`.
 
-Commands: init-db, seed [--reset], tg-login, tg-resolve, tg-history [--limit N], extract-once [--limit N]
+Commands: init-db, seed [--reset], tg-login, tg-resolve, tg-history [--limit N] [--days N], extract-once [--limit N]
 """
 
 from __future__ import annotations
@@ -107,7 +107,10 @@ def cmd_tg_history(args: argparse.Namespace) -> None:
     from app.data_pipeline import telegram_ingest as tg
 
     sources.sync_sources_from_yaml()
-    print(json.dumps(asyncio.run(tg.run_history(args.limit, allow_file=True)), indent=2))
+    window = f"last {args.days} days" if args.days else "new messages only"
+    print(f"Importing history ({window}{f', limit {args.limit}/source' if args.limit else ''}) ...")
+    stats = asyncio.run(tg.run_history(args.limit, allow_file=True, days=args.days, progress=print))
+    print("Summary:", tg.history_summary(stats))
 
 
 def cmd_extract_once(args: argparse.Namespace) -> None:
@@ -145,7 +148,8 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("tg-login", help="log in to Telegram and print TG_SESSION").set_defaults(fn=cmd_tg_login)
     sub.add_parser("tg-resolve", help="find @usernames for sources.yaml titles").set_defaults(fn=cmd_tg_resolve)
     h = sub.add_parser("tg-history", help="import channel history")
-    h.add_argument("--limit", type=int, default=None)
+    h.add_argument("--limit", type=int, default=None, help="max messages per source")
+    h.add_argument("--days", type=int, default=None, help="every message from the last N days (UTC)")
     h.set_defaults(fn=cmd_tg_history)
     e = sub.add_parser("extract-once", help="process pending raw posts")
     e.add_argument("--limit", type=int, default=None)
