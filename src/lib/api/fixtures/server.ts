@@ -59,7 +59,7 @@ function fresh(): DemoState {
     decisions: clone(seed.SEED_DECISIONS),
     units: seed.seedUnits(),
     finds: clone(seed.SEED_FINDS),
-    feedIndex: 0,
+    feedIndex: 1,
     previous: clone(seed.SEED_PREVIOUS),
     quotes: clone(seed.SEED_QUOTES),
     rfqNote: null,
