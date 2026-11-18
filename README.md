@@ -119,7 +119,8 @@ httpx, google-genai (Gemini), openpyxl, WeasyPrint (optional, for PDF), pytest, 
 ```
 .
 ├── README.md                         ← this file
-├── render.yaml                       Render Blueprint (free Docker web service)
+├── start-raft.cmd / start-raft.ps1   start the backend on this machine (local hosting)
+├── render.yaml                       Render Blueprint (free Docker web service, for later)
 ├── docs/DEPLOY.md                    free hosting: Neon + Render + cron-job.org + Cloudflare tunnel + frontend
 └── backend/
     ├── app/
@@ -292,7 +293,7 @@ Everything comes from environment variables (or `backend/.env`). Defaults are sh
 | `TG_BOT_TOKEN` | — | Bot token from @BotFather |
 | `SOURCES_FILE` | `sources.yaml` | Telegram sources file |
 | `GEMINI_API_KEY` | — | Optional. Without it every feature uses its rule-based fallback (voice and invoice OCR return 503) |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Model name |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Model name |
 | `LLM_TIMEOUT_S` | `15` | Timeout for every in-request LLM call |
 | `EXTRACT_BATCH_SIZE` | `15` | Posts per Gemini extraction call |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server for the local model |
@@ -892,18 +893,57 @@ seed data use a module-scoped reseed fixture.
 ruff check app tests scripts
 ```
 
-**Smoke run:** with the server running on a fresh seed, this calls every endpoint once with the demo keys
-(136 calls) and prints the status and timing of each:
+**Smoke run:** with the server running, this calls every endpoint once with the demo keys and prints the status
+and timing of each. It writes demo actions (RFQs, deals, uploads) into the target database. Add `--no-extract`
+on a database whose Telegram backlog must stay untouched (otherwise it processes one pending post):
 
 ```bash
-python scripts/smoke.py http://127.0.0.1:8000 change-me
+python scripts/smoke.py http://127.0.0.1:8000 <ADMIN_KEY> --no-extract
 ```
 
 ---
 
 ## 15. Deployment
 
-**Free hosting** (full guide: [docs/DEPLOY.md](docs/DEPLOY.md)):
+### Run it on this machine (current setup)
+
+Raft is hosted locally: one process on this computer, SQLite in `backend/raft.db`, and the local model in Ollama.
+
+```bash
+start-raft.cmd
+```
+
+Double-click it, or run it from a terminal (`.\start-raft.ps1` in PowerShell). The script:
+- checks the virtualenv, `backend\.env` and Ollama (`qwen2.5:3b`);
+- starts the API on `127.0.0.1:8000` with every worker from `.env`: Telegram listener, extractor, decisions
+  and bot;
+- writes the log to `backend\logsaft-YYYYMMDD.log`.
+
+Stop it with Ctrl+C.
+
+| Option | Effect |
+|---|---|
+| `-Lan` | listen on `0.0.0.0` so other devices on the same network can use it (Windows may ask for firewall access) |
+| `-NoExtractor` | leave pending Telegram posts unprocessed (the extractor otherwise works through them in the background) |
+| `-Port 9000` | another port |
+
+Checks after starting:
+- **Swagger:** http://127.0.0.1:8000/docs
+- **Status:** http://127.0.0.1:8000/api/v1/health shows the DB, Gemini, local model, Telegram listener,
+  extractor and bot.
+- **Model card:** http://127.0.0.1:8000/api/v1/model.
+
+To reach it from the internet (e.g. a hosted frontend), run `cloudflared tunnel --url http://localhost:8000`
+(see [docs/DEPLOY.md](docs/DEPLOY.md) §5) and add the frontend origin to `CORS_ORIGINS`.
+
+> **Never run `python -m app.cli seed --reset` on this database.** It drops everything, including the imported
+> Telegram posts.
+
+The Render + Neon setup below is kept for later.
+
+### Free cloud hosting (later)
+
+Full guide: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 | Piece | Where | Notes |
 |---|---|---|

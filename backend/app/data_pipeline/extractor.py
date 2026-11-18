@@ -145,7 +145,12 @@ post, in the same order. Each object:
  "price": number, "currency": "USD"|"UZS", "city": str|null,
  "district": one of {json.dumps(DISTRICTS)} or null, "seller_type": "shop"|"private"|null, "attrs": {{...}}}}
 Rules:
-- skip=true for questions, "buying"/"sotib olaman"/"куплю" posts, service ads, news, posts without a price.
+- skip=true for questions, service ads, news, posts without a price, and buying posts. "buying" ONLY when the
+  author wants to BUY (sotib olaman, olaman, куплю, kerak). A shop post with specs and a price is a SALE.
+- condition for phones/laptops: "new" ONLY if it says yangi/новый/new/sealed/karobkasi ochilmagan. "ideal",
+  "идеал", "отличное" or a battery below 100% -> "A"; "yaxshi"/"хорошее" -> "B"; scratches/repairs -> "C".
+- Short iPhone names ("#Pro13", "13 Pro", "14PM") mean brand Apple, model "iPhone 13 Pro" / "iPhone 14 Pro Max".
+  "brand" is the maker only; "model" never repeats the brand.
 - If a post lists several items, extract the first one.
 - Currency: "$", "y.e.", "у.е.", "dollar" -> USD. "so'm", "сум", "mln", "ming" -> UZS.
   "5.2 mln" = 5200000 UZS; "250 ming" = 250000 UZS. Car or house prices with no currency -> USD.
@@ -404,35 +409,33 @@ LOCAL_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_BATCH_FORMAT, "You receive ONE post
 
 #: (category_hint, post text, expected JSON) — six short worked examples for the local model.
 FEW_SHOTS: list[tuple[str, str, dict[str, Any]]] = [
-    ("phone", "iPhone 13 128gb ideal holatda, batareya 89%, korobka bor. Narxi 5.2 mln so'm. Chilonzor",
+    ("phone", "iPhone 13 128gb ideal, batareya 89%, korobka bor. Narxi 5.2 mln so'm. Chilonzor",
      {"skip": False, "category": "phone", "brand": "Apple", "model": "iPhone 13", "condition": "A",
       "price": 5200000, "currency": "UZS", "city": "Toshkent", "district": "Chilonzor", "seller_type": None,
       "attrs": {"storage_gb": 128, "battery_pct": 89, "has_box": True}}),
-    ("car", "Cobalt 2021, probeg 45 000 km, 4 pozitsiya, kraskasi yo'q, metan bor. Narxi 11 800$",
+    ("car", "Cobalt 2021, probeg 45 000 km, 4 pozitsiya, kraskasi yo'q, metan. 11 800$",
      {"skip": False, "category": "car", "brand": "Chevrolet", "model": "Cobalt", "condition": "used",
       "price": 11800, "currency": "USD", "city": None, "district": None, "seller_type": None,
       "attrs": {"year": 2021, "mileage_km": 45000, "trim": 4, "paint_clean": True, "fuel": "metan"}}),
-    ("rent", "Сдаю 2-комнатную квартиру в Юнусабаде, с мебелью и техникой, коммунальные включены. 450$ в месяц",
+    ("rent", "Сдаю 2-комн. Юнусабад, мебель, коммунальные включены. 450$ в месяц",
      {"skip": False, "category": "rent", "brand": None, "model": "2-xonali ijara", "condition": "used",
       "price": 450, "currency": "USD", "city": "Toshkent", "district": "Yunusobod", "seller_type": None,
-      "attrs": {"rooms": 2, "furnished": True, "appliances": True, "utilities_included": True,
-                "period": "monthly"}}),
-    ("laptop", "Продаю MacBook Air M1 8/256, состояние отличное, батарея 92%. Цена 620$",
+      "attrs": {"rooms": 2, "furnished": True, "utilities_included": True, "period": "monthly"}}),
+    ("laptop", "MacBook Air M1 8/256, отличное, батарея 92%. Цена 620$",
      {"skip": False, "category": "laptop", "brand": "Apple", "model": "MacBook Air M1", "condition": "A",
       "price": 620, "currency": "USD", "city": None, "district": None, "seller_type": None,
       "attrs": {"cpu": "Apple M1", "ram_gb": 8, "ssd_gb": 256, "battery_health": 92}}),
-    ("house", "Сотилади 3 хонали квартира, Мирзо Улуғбек, 78 м², 5/9 қават, евро таъмир, кадастр бор. Нархи 95 000",
+    ("house", "Сотилади 3 хонали, Мирзо Улуғбек, 78 м², евро таъмир. Нархи 95 000",
      {"skip": False, "category": "house", "brand": None, "model": "3-xonali kvartira", "condition": "used",
       "price": 95000, "currency": "USD", "city": "Toshkent", "district": "Mirzo Ulug'bek", "seller_type": None,
-      "attrs": {"rooms": 3, "area_m2": 78, "floor": 5, "floors_total": 9, "renovation": "yevro",
-                "cadastre": True}}),
-    ("phone", "Sotib olaman iPhone 14 Pro, 9 mln gacha, tez javob bering",
+      "attrs": {"rooms": 3, "area_m2": 78, "renovation": "yevro"}}),
+    ("phone", "Sotib olaman iPhone 14 Pro, 9 mln gacha",
      {"skip": True, "skip_reason": "buying"}),
 ]
 
 
-#: Post text is capped so prompt + 6 examples + answer fit the 2,048-token context (measured: ~1.7k worst case).
-LOCAL_MAX_POST_CHARS = 600
+#: Post text is capped so prompt + 6 examples + answer fit the 2,048-token context (measured: ~1.85k worst case).
+LOCAL_MAX_POST_CHARS = 480
 
 
 def clip_post(text: str, limit: int = LOCAL_MAX_POST_CHARS) -> str:

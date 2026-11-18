@@ -16,6 +16,10 @@ os.environ.update({
     "WORKERS_DECISIONS": "false",
     "EXTRACT_PROVIDER_ORDER": "gemini,rules",  # never reach a real Ollama; local tests opt in
     "GEMINI_API_KEY": "",
+    # never inherit real credentials from a developer's backend/.env
+    "TG_API_ID": "",
+    "TG_API_HASH": "",
+    "TG_SESSION": "",
     "TG_BOT_TOKEN": "",
     "ADMIN_KEY": "test-admin",
     "DEMO_MODE": "true",

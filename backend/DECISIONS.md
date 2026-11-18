@@ -457,3 +457,51 @@ price line at the bottom, and a plain head cut lost it.
 - Remaining model errors: "holati ideal" read as `new` (should be `A`), "#Pro13" read as a MacBook, and one sale
   post skipped as "buying". These are visible with `reextract` and are the next things to tune (few-shots).
 - `reextract --provider rules` on the same posts: the rule parser alone would skip 4 of them and lose 65 fields.
+
+---
+
+# Local hosting and the remaining open tasks
+
+- **Hosting is local for now** (startup stage). `start-raft.cmd` / `start-raft.ps1` at the repo root check the
+  virtualenv, `.env` and Ollama, then run `python -m app.main` with every worker from `.env`, teeing the log to
+  `backend/logs/` (git-ignored).
+  - The script binds to 127.0.0.1 by default; `-Lan` binds to 0.0.0.0, and `-NoExtractor` holds back the extractor.
+  - Windows PowerShell 5 turns redirected stderr into error records (fatal under `Stop`), so `cmd /c … 2>&1`
+    merges the streams before `Tee-Object`.
+  - Render/Neon/`render.yaml` stay in the repo for later.
+- **Branches:** `refactor-modular` → `remove-roadmap` → `rename-raft` → `local-llm` were linear on top of
+  master, so master was fast-forwarded. All four are fully contained in master; they were kept, not deleted.
+- **Telegram listener on the server:** `TG_SESSION` in `.env` was filled from the existing logged-in
+  `raft.session` (`StringSession.save(SQLiteSession)`), so no new login was needed. This machine is the only host,
+  so the one-session-per-backend rule holds.
+- **`autoseyll` (the only resolved car channel) had been switched off by the smoke script.** The script
+  deactivated its own test source, but on a re-run (409 "exists") it fell back to `sources[0]`, a real channel.
+  The script now looks its source up by username, `autoseyll` was re-enabled, and its missing 30 days were
+  imported (228 posts, import only, no extraction).
+- **Two car channels stay unresolved** ("Avto kredit ST GROUP VIP KANAL" and "NERDS AUTO CAR SALE"). Public search
+  finds no match (the candidates were unrelated groups), so they are probably private or have no username. They
+  need their `t.me` links from the owner.
+- **Tests no longer read the developer's `.env` credentials.** `conftest` blanks `TG_API_ID`, `TG_API_HASH` and
+  `TG_SESSION`, after a filled `TG_SESSION` made an admin test see Telegram as configured.
+- **Gemini model:** `gemini-2.5-flash` is no longer available to new accounts (404). That would silently send
+  every Gemini call to the fallbacks. At the time of the check, `gemini-3.5-flash`, `3.7` and `3.8-flash`
+  returned 503/504 (overloaded), while `gemini-3.5-flash-lite` answered both text and JSON in about 2 s. It is
+  now the default: Gemini is only the second extractor after the local model, plus copilot phrasing and
+  OCR/voice. Set `GEMINI_MODEL=gemini-3.8-flash` once it is reliably available.
+- **Local-model prompt tuning:**
+  - Measured on 12 real posts with known answers plus 5 samples, using real channel hints:
+    **7/17 → 14/17** (counting `validate()`'s existing `ideal` → `A` mapping).
+  - Three rule lines were added to the shared prompt: "buying" only when the author wants to buy; `new` only
+    for yangi/новый/sealed (ideal or a battery under 100% → `A`); short iPhone names like "#Pro13".
+  - To keep the 2,048-token window (worst case 1,897 tokens), the six example texts were shortened (same lessons)
+    and the post cap went from 600 to 480 characters, still head + tail.
+  - Remaining misses: one `new` instead of `A`, one `C` (70% battery, no box: arguable), and "iPhone 13" without
+    "Pro". Not tuned further, to avoid overfitting 17 posts.
+- **The smoke script touched real data.** Its `POST /admin/extract/run` call processed 60 real pending posts
+  (its default batch) during a verification run on the live database, against the owner's "don't process the
+  posts" instruction. Those 60 were extracted correctly and kept (31 listings, 29 skipped). The script now
+  extracts at most one post (`?limit=1`), and `--no-extract` skips the call entirely. It also accepts `422` for
+  its fake invoice image and fake voice note, which is what a working Gemini key correctly returns for 2–4 bytes
+  of junk.
+- **The start script's log is UTF-8.** `Tee-Object` in Windows PowerShell 5 writes UTF-16, which grep and editors
+  read as spaced-out text, so a `StreamWriter` writes the log instead.

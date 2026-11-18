@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # --- LLM ------------------------------------------------------------------
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     LLM_TIMEOUT_S: float = 15.0
     EXTRACT_BATCH_SIZE: int = 15
 

@@ -13,3 +13,4 @@ scratch/
 # local Raft data (SQLite + Telegram session) — never commit
 raft.db*
 *.session
+logs/

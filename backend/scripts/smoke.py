@@ -1,6 +1,9 @@
 """Call every endpoint once against a running server with the demo keys.
 
-Usage: python scripts/smoke.py [http://localhost:8000] [admin-key]
+Usage: python scripts/smoke.py [http://localhost:8000] [admin-key] [--no-extract]
+
+It writes demo actions (RFQs, deals, uploads) into the target database. `POST /admin/extract/run` processes at most
+one pending Telegram post; pass --no-extract to skip it on a database whose backlog must stay untouched.
 """
 
 from __future__ import annotations
@@ -11,8 +14,10 @@ from datetime import date
 
 import httpx
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000") + "/api/v1"
-ADMIN = {"X-Admin-Key": sys.argv[2] if len(sys.argv) > 2 else "change-me"}
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+NO_EXTRACT = "--no-extract" in sys.argv
+BASE = (ARGS[0] if ARGS else "http://localhost:8000") + "/api/v1"
+ADMIN = {"X-Admin-Key": ARGS[1] if len(ARGS) > 1 else "change-me"}
 results: list[tuple[str, str, int, float]] = []
 
 
@@ -70,7 +75,8 @@ def main() -> None:
     call("GET", "/books/upload/template")
     csv = "sana,kategoriya,summa,kontragent\n2026-11-02,internet,350000,Uzonline\n"
     call("POST", "/books/upload", nk, files={"file": ("b.csv", csv.encode(), "text/csv")})
-    call("POST", "/books/invoice", nk, expect=(200, 503), files={"file": ("i.jpg", b"\xff\xd8", "image/jpeg")})
+    # 503 without a Gemini key; with one, the 2-byte fake image is rejected by OCR (422)
+    call("POST", "/books/invoice", nk, expect=(200, 422, 503), files={"file": ("i.jpg", b"\xff\xd8", "image/jpeg")})
     tx = call("POST", "/books/transactions", nk, expect=201, json={"date": date.today().isoformat(),
                                                                    "type": "expense", "category": "ads",
                                                                    "total": 500000, "counterparty": "IG"}).json()
@@ -130,14 +136,15 @@ def main() -> None:
 
     # admin
     call("GET", "/admin/status", ADMIN)
-    src = call("GET", "/admin/sources", ADMIN).json()
-    s = call("POST", "/admin/sources", ADMIN, expect=(201, 409), json={"title": "Smoke", "username": "smoke_src_x",
+    call("POST", "/admin/sources", ADMIN, expect=(201, 409), json={"title": "Smoke", "username": "smoke_src_x",
                                                                       "category_hint": "phone"})
-    sid = s.json()["id"] if s.status_code == 201 else (src[0]["id"] if src else None)
-    if sid:
-        call("PATCH", f"/admin/sources/{sid}", ADMIN, json={"active": False})
+    # only ever touch the smoke script's own source — never a real channel
+    src = call("GET", "/admin/sources", ADMIN).json()
+    sid = next(s["id"] for s in src if s["username"] == "smoke_src_x")
+    call("PATCH", f"/admin/sources/{sid}", ADMIN, json={"active": False})
     call("POST", "/admin/telegram/history", ADMIN, expect=(202, 503))
-    call("POST", "/admin/extract/run", ADMIN)
+    if not NO_EXTRACT:  # touches real pending posts: at most one
+        call("POST", "/admin/extract/run?limit=1", ADMIN)
     call("GET", "/admin/raw-posts", ADMIN)
     call("POST", "/admin/fx/refresh", ADMIN)
     call("GET", "/admin/fx/refresh", ADMIN)
@@ -202,7 +209,8 @@ def v2(ch: dict, to: dict, sa: dict, yr: dict) -> None:
     # fast inputs
     call("POST", "/input/parse", ch, json={"text": "cobalt 2021 45 ming probeg pozitsiya 4"})
     call("POST", "/input/imei", ch, json={"imei": "353409131234565"})
-    call("POST", "/input/voice", ch, expect=(200, 503), files={"file": ("v.ogg", b"OggS", "audio/ogg")})
+    # 503 without a Gemini key; with one, the 4-byte fake audio is rejected by transcription (422)
+    call("POST", "/input/voice", ch, expect=(200, 422, 503), files={"file": ("v.ogg", b"OggS", "audio/ogg")})
     csv = "Sana;Modda;Jami summa\n2026-11-05;svet;900000\n"
     call("POST", "/books/upload/preview", ch, files={"file": ("b.csv", csv.encode(), "text/csv")})
     call("POST", "/market/price-from-link", ch, expect=(200, 404), json={"url": "https://t.me/mixmobiles/1"})
