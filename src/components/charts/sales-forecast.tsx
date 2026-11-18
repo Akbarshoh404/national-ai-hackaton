@@ -9,7 +9,7 @@ import { ChartTip, Legend, TickText, linePath, useWidth } from "./base";
 
 const WINDOW = 60;
 const M = { top: 20, right: 8, bottom: 24, left: 44 };
-const PLOT_H = 196;
+const PLOT_H = 248;
 const NAV_H = 36;
 
 const valueOf = (d: SalesDay) => d.actual ?? d.forecast ?? 0;

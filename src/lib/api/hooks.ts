@@ -40,9 +40,31 @@ export const useStockSummary = () => useQuery({ queryKey: ["stock", "summary"], 
 
 export function useReprice() {
   const qc = useQueryClient();
+  type Units = { items: S.StockUnit[]; next_cursor: string | null; total: number };
   return useMutation({
     mutationFn: (body: { unit_ids: string[] } | { prices: { id: string; price: number }[] }) => api("/stock/reprice", { method: "POST", schema: S.RepriceResult, body }),
-    onSuccess: () => invalidate(qc, "stock", "dashboard", "decisions", "activity"),
+    onMutate: async (body) => {
+      await qc.cancelQueries({ queryKey: ["stock", "units"] });
+      const previous = qc.getQueryData<Units>(["stock", "units"]);
+      if (previous) {
+        const target = (u: S.StockUnit) => ("prices" in body ? body.prices.find((p) => p.id === u.id)?.price : body.unit_ids.includes(u.id) ? (u.suggested_price ?? undefined) : undefined);
+        qc.setQueryData<Units>(["stock", "units"], {
+          ...previous,
+          items: previous.items.map((u) => {
+            const price = target(u);
+            if (price === undefined) return u;
+            const vs = u.market_price ? ((price - u.market_price) / u.market_price) * 100 : null;
+            const rating: S.Rating = vs === null ? "no_data" : vs > 6 ? "over" : vs < -6 ? "under" : "fair";
+            return { ...u, list_price: price, vs_market_pct: vs, margin: price - u.cost, rating };
+          }),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _body, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["stock", "units"], ctx.previous);
+    },
+    onSettled: () => invalidate(qc, "stock", "dashboard", "decisions", "activity"),
   });
 }
 

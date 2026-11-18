@@ -35,7 +35,18 @@ const SIZES = [
   { width: 1280, height: 800 },
 ];
 
-const browser = await chromium.launch();
+async function launch() {
+  for (const channel of ["chrome", "msedge", "chromium"]) {
+    try {
+      return await chromium.launch({ channel });
+    } catch {
+      /* try the next installed browser */
+    }
+  }
+  throw new Error("No browser found. Install Chrome or run: npx playwright install chromium");
+}
+
+const browser = await launch();
 const problems = [];
 
 for (const size of SIZES) {
@@ -60,7 +71,12 @@ for (const size of SIZES) {
     await page.waitForTimeout(500);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     if (overflow > 0) problems.push(`${screen.name} ${size.width}: page overflows by ${overflow}px`);
-    await page.screenshot({ path: `${OUT}/${screen.name}-${size.width}.png`, fullPage: true });
+    // Grow the viewport to the page, so the fixed backdrop and sticky bars render as they do on screen.
+    const height = await page.evaluate(() => document.documentElement.scrollHeight);
+    await page.setViewportSize({ width: size.width, height: Math.max(size.height, height) });
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${OUT}/${screen.name}-${size.width}.png` });
+    await page.setViewportSize(size);
     console.log(`ok ${screen.name} ${size.width}`);
   }
   await context.close();

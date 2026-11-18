@@ -115,6 +115,7 @@ const CATALOG: { model: string; attrs: string[]; category: "phone" | "laptop"; m
   { model: "iPhone 14", attrs: ["128 GB", "A", "92%"], category: "phone", market: 540 },
   { model: "iPhone 14 Pro", attrs: ["256 GB", "A", "91%"], category: "phone", market: 875 },
   { model: "iPhone 15", attrs: ["128 GB", "Yangi"], category: "phone", market: 705 },
+  { model: "iPhone 15 Pro", attrs: ["256 GB", "A"], category: "phone", market: 985 },
   { model: "Galaxy S23 Ultra", attrs: ["256 GB", "A"], category: "phone", market: 690 },
   { model: "Galaxy S23", attrs: ["128 GB", "A"], category: "phone", market: 480 },
   { model: "Galaxy A55", attrs: ["128 GB", "Yangi"], category: "phone", market: 305 },
@@ -138,7 +139,7 @@ export function seedUnits(): StockUnit[] {
   }
 
   const units = ratings.map((rating, i): StockUnit => {
-    const item = i === 0 ? CATALOG[10] : CATALOG[(i * 5) % CATALOG.length];
+    const item = i === 0 ? CATALOG.find((c) => c.model === "MacBook Air M2")! : CATALOG[(i * 5) % CATALOG.length];
     const market = i === 0 ? 760 : round5(item.market * (0.98 + rand() * 0.04));
     const factor =
       rating === "over" ? 1.08 + rand() * 0.08 : rating === "under" ? 0.87 + rand() * 0.05 : rating === "fair" ? 0.97 + rand() * 0.07 : 1;
@@ -178,26 +179,15 @@ export function seedUnits(): StockUnit[] {
 
   // Stock at market totals $48 200, the collateral value the bank sees.
   const value = (u: StockUnit) => u.market_price ?? u.list_price;
+  // Units without market data absorb the difference, so model prices stay true to the market index.
   let diff = 48_200 - units.reduce((sum, u) => sum + value(u), 0);
-  const fair = units.filter((u) => u.rating === "fair");
-  const step = round5(diff / fair.length);
-  for (const u of fair) {
-    u.market_price = (u.market_price ?? 0) + step;
-    u.list_price += step;
-    u.suggested_price = u.list_price;
-    u.margin = u.list_price - u.cost;
-    diff -= step;
-  }
-  for (let i = 0; Math.abs(diff) >= 5; i = (i + 1) % fair.length) {
+  const unpriced = units.filter((u) => u.rating === "no_data");
+  for (let i = 0; Math.abs(diff) >= 5; i = (i + 1) % unpriced.length) {
     const d = diff > 0 ? 5 : -5;
-    const u = fair[i];
-    u.market_price = (u.market_price ?? 0) + d;
-    u.list_price += d;
-    u.suggested_price = u.list_price;
-    u.margin = u.list_price - u.cost;
+    unpriced[i].list_price += d;
+    unpriced[i].margin += d;
     diff -= d;
   }
-  for (const u of fair) u.vs_market_pct = u.market_price ? ((u.list_price - u.market_price) / u.market_price) * 100 : null;
   return units;
 }
 
