@@ -40,6 +40,18 @@ def test_price_asking_badge(client, chilonzor):
     assert a["badge"] == "12% below market"
 
 
+def test_price_buy_quote(client, chilonzor):
+    body = {"category": "phone", "model": "iPhone 13", "condition": "A", "attrs": {"storage_gb": 128}}
+    e = client.post("/api/v1/market/price", json=body, headers=chilonzor).json()
+    q = e["buy_quote"]
+    assert q["resale_price_uzs"] == e["fair_price_uzs"] and q["max_buy_price_uzs"] == e["fair_buy_price_uzs"]
+    assert q["handling_uzs"] == round(e["fair_price_uzs"] * q["handling_pct"])
+    assert q["expected_profit_uzs"] == pytest.approx(
+        q["resale_price_uzs"] - q["handling_uzs"] - q["max_buy_price_uzs"], abs=1)
+    assert q["expected_profit_uzs"] > 0 and q["dealer_margin_pct"] == 0.15
+    assert q["expected_days_to_sell"] and q["days_basis"]
+
+
 def test_price_condition_ordering(client, chilonzor):
     vals = []
     for cond in ["new", "A", "B", "C"]:

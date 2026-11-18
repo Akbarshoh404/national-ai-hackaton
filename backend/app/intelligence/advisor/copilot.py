@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import date
 from typing import Any
@@ -27,7 +26,14 @@ from app.intelligence.b2b import exchange
 from app.intelligence.books import books
 from app.intelligence.market import market, pricing, stock
 
-INTENTS = ["price", "stock", "audit", "budget", "cashflow", "credit", "tax", "loan_readiness", "demand", "overview"]
+INTENTS = ["greeting", "price", "stock", "audit", "budget", "cashflow", "credit", "tax", "loan_readiness", "demand",
+           "overview"]
+
+#: whole-message greetings / thanks (matched on words, so "hi" never fires inside "hisob")
+_GREETING = re.compile(
+    r"^\W*(salom|assalomu?\s*alaykum|assalom|xayrli\s+(kun|tong|kech)|rahmat|raxmat|tashakkur|"
+    r"привет|здравствуй\w*|добрый\s+(день|вечер|утро)|спасибо|hello|hi|hey|thanks|thank\s+you)\b[\s\W]*"
+    r"(qalaysiz|qalesiz|yaxshimisiz|yaxshimi|как\s+дела|how\s+are\s+you)?[\s\W]*$", re.I)
 
 # order matters: the first matching intent wins
 _RULES: list[tuple[str, tuple[str, ...]]] = [
@@ -45,7 +51,8 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
                 "what sells")),
     ("stock", ("ombor", "склад", "stock", "zaxira", "запас", "inventory", "overpriced", "qimmat", "дорог",
                "sotilmay", "не продаёт", "не продает", "aging", "eskir")),
-    ("price", ("narx", "цен", "price", "qancha turadi", "сколько стоит", "baho", "оцен", "worth")),
+    ("price", ("narx", "цен", "price", "qancha turadi", "сколько стоит", "baho", "оцен", "worth", "nechpul",
+               "necha pul", "nech pul", "почём", "почем")),
     ("cashflow", ("pul oqimi", "cash", "foyda", "прибыл", "profit", "daromad", "доход", "income", "оборот",
                   "xarajat", "расход", "expense")),
 ]
@@ -126,28 +133,67 @@ def chip(key: str, lang: str, endpoint: str, method: str = "GET", body: dict | N
 # Intent routing                                                                #
 # --------------------------------------------------------------------------- #
 
+_ROUTER_SYSTEM = (
+    "You route one message from a phone/laptop/car shop owner in Uzbekistan (Uzbek, Russian or English) to a tool. "
+    "Tools: greeting (hello, thanks, small talk), price (market price of a product), stock (the shop's own "
+    "inventory), audit (errors in the books), budget (spending limits), cashflow (income, expenses, profit), "
+    "credit (loans), tax, loan_readiness (credit score), demand (what sells), overview (general state of the "
+    "business). Return JSON {\"intent\": \"<tool>\", \"product\": \"<brand and model the message is about, or "
+    "empty>\"}. Never invent numbers."
+)
+
+
+def _model_route(question: str) -> tuple[str, str, str] | None:
+    """(intent, product, provider) from the configured models, in EXTRACT_PROVIDER_ORDER. None if none answered.
+
+    The model only names a tool and a product; every number still comes from Python.
+    """
+    for provider in settings.provider_order:
+        out: Any = None
+        if provider == "rules":
+            break
+        if provider == "local" and not llm.local_suspended():
+            try:
+                out = llm.local_chat_json([{"role": "system", "content": _ROUTER_SYSTEM},
+                                           {"role": "user", "content": question}],
+                                          timeout=settings.LOCAL_TIMEOUT_S)
+            except llm.LocalLLMError:
+                out = None
+        elif provider == "gemini" and llm.available():
+            out = llm.generate_json(question, system=_ROUTER_SYSTEM, timeout=settings.LLM_TIMEOUT_S)
+        if isinstance(out, dict) and out.get("intent") in INTENTS:
+            product = out.get("product") if isinstance(out.get("product"), str) else ""
+            return out["intent"], product.strip(), "local" if provider == "local" else "llm"
+    return None
+
+
 def route_intent(question: str, context: dict[str, Any] | None) -> tuple[str, str]:
-    """(intent, how). Keyword rules first, then screen context, then the LLM (intent name only)."""
+    """(intent, how). Greetings and keyword rules first, then screen context, then the model (intent name only)."""
+    intent, how, _ = route(question, context)
+    return intent, how
+
+
+def route(question: str, context: dict[str, Any] | None) -> tuple[str, str, str]:
+    """(intent, how, product). `product` is only set when a model named one."""
     q = question.lower()
     ctx = context or {}
+    if _GREETING.match(question.strip()):
+        return "greeting", "rules", ""
     for intent, words in _RULES:
         if any(w in q for w in words):
             if intent == "price" and ctx.get("inventory_ids"):
-                return "stock", "rules"
-            return intent, "rules"
+                return "stock", "rules", ""
+            return intent, "rules", ""
     if ctx.get("inventory_ids"):
-        return "stock", "context"
+        return "stock", "context", ""
     if ctx.get("transaction_ids"):
-        return "audit", "context"
+        return "audit", "context", ""
     if ctx.get("screen") in _SCREEN_DEFAULT and ctx["screen"] != "advisor":
-        return _SCREEN_DEFAULT[ctx["screen"]], "context"
-    if llm.available():
-        out = llm.generate_json(
-            f"Classify the business question into one intent from {json.dumps(INTENTS)}. "
-            f'Return JSON {{"intent": "<name>"}}. Question: {question}', timeout=settings.LLM_TIMEOUT_S)
-        if isinstance(out, dict) and out.get("intent") in INTENTS:
-            return out["intent"], "llm"
-    return "overview", "default"
+        return _SCREEN_DEFAULT[ctx["screen"]], "context", ""
+    routed = _model_route(question)
+    if routed:
+        return routed[0], routed[2], routed[1]
+    return "overview", "default", ""
 
 
 _AMOUNT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(mlrd|млрд|mln|млн|million|ming|тыс)", re.I)
@@ -180,15 +226,41 @@ def _price_blocks(est: pricing.Estimate, title: str, lang: str, your: float | No
     ]
 
 
-def tool_price(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
-    cats = company.categories or ["phone"]
-    q = norm_model(question)
-    best = None
+def _match_model(db: Session, cats: list[str], text: str) -> tuple[str, dict[str, Any]] | None:
+    """Longest known model name inside `text`. The end is not a word boundary, so Uzbek suffixes such as
+    "iphone 14ni" / "a54ning" still match; a following digit ("iphone 145") does not."""
+    q = norm_model(text)
+    best: tuple[str, dict[str, Any]] | None = None
+    best_len = 0
     for cat in cats:
-        for m in market.models(db, cat, None, 50):
-            hit = m["model_norm"] and re.search(r"\b" + re.escape(m["model_norm"]) + r"\b", q)
-            if hit and (best is None or len(m["model_norm"]) > len(best[1]["model_norm"])):
-                best = (cat, m)
+        for m in market.models(db, cat, None, 200):
+            for name in _aliases(m["model_norm"]):
+                hit = re.search(r"(?<![0-9a-z])" + re.escape(name) + r"(?![0-9])", q)
+                if hit and len(name) > best_len:
+                    best, best_len = (cat, m), len(name)
+    return best
+
+
+#: series words people often leave out ("Samsung A54" for "Galaxy A54")
+_SERIES = ("galaxy ",)
+
+
+def _aliases(name: str | None) -> list[str]:
+    if not name:
+        return []
+    out = [name]
+    for word in _SERIES:
+        rest = name[len(word):] if name.startswith(word) else ""
+        if rest and any(ch.isdigit() for ch in rest):
+            out.append(rest)
+    return out
+
+
+def tool_price(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
+    cats = list(dict.fromkeys([*(company.categories or []), "phone", "laptop", "car"]))
+    best = _match_model(db, cats, question)
+    if best is None and ctx.get("_product"):  # product named by the local model / Gemini router
+        best = _match_model(db, cats, ctx["_product"])
     if best is None:
         return tool_overview(db, company, question, ctx, lang)
     cat, m = best
@@ -385,7 +457,15 @@ def tool_overview(db: Session, company: Company, question: str, ctx: dict[str, A
     return blocks, chips, {"net": cf["net_uzs"], "issues": s["issues"], "score": lr["score"]}
 
 
-TOOLS = {"price": tool_price, "stock": tool_stock, "audit": tool_audit, "budget": tool_budget,
+def tool_greeting(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
+    chips = [chip("chip_decisions", lang, "/api/v1/decisions"), chip("chip_stock", lang, "/api/v1/stock/summary"),
+             chip("chip_cashflow", lang, "/api/v1/advisor/cashflow?months=12")]
+    thanks = bool(re.search(r"rahmat|raxmat|tashakkur|спасибо|thank", question, re.I))
+    return [], chips, {"name": company.name, "_intent": "thanks" if thanks else "greeting"}
+
+
+TOOLS = {"greeting": tool_greeting,
+         "price": tool_price, "stock": tool_stock, "audit": tool_audit, "budget": tool_budget,
          "cashflow": tool_cashflow, "credit": tool_credit, "tax": tool_tax, "loan_readiness": tool_loan_readiness,
          "demand": tool_demand,
          "overview": tool_overview}
@@ -429,6 +509,13 @@ def template_answer(intent: str, f: dict[str, Any], lang: str) -> str:
         "demand": (f"Eng ko'p e'lon qilingan model: {f.get('top')} ({f.get('n')} ta).",
                    f"Больше всего объявлений: {f.get('top')} ({f.get('n')}).",
                    f"Most listed model: {f.get('top')} ({f.get('n')} listings)."),
+        "greeting": (f"Salom! Men {f.get('name')} yordamchisiman: narx, ombor, foyda, byudjet, soliq yoki kredit "
+                     "haqida so'rang.",
+                     f"Здравствуйте! Я помощник {f.get('name')}: спросите о ценах, складе, прибыли, бюджете, "
+                     "налогах или кредите.",
+                     f"Hi! I'm the {f.get('name')} assistant: ask about prices, stock, profit, budget, tax or loans."),
+        "thanks": ("Arzimaydi! Yana savol bo'lsa, so'rang.", "Пожалуйста! Если будут вопросы, спрашивайте.",
+                   "You're welcome! Ask if you need anything else."),
         "overview": (f"Bu oy sof natija {m(f.get('net'))}, audit muammolari {f.get('issues')}, kreditga tayyorlik "
                      f"{f.get('score')}/100.",
                      f"Чистыми в этом месяце {m(f.get('net'))}, проблем аудита {f.get('issues')}, готовность "
@@ -447,25 +534,38 @@ def _two_sentences(text: str) -> str:
 
 def answer(db: Session, company: Company, question: str, history: list[dict[str, str]],
            context: dict[str, Any] | None, header_lang: str) -> dict[str, Any]:
-    """Run the copilot: route → tool → blocks → answer (LLM phrasing optional)."""
+    """Run the copilot: route → tool → blocks → answer.
+
+    The answer text is a deterministic template filled with the tool's numbers. A model only rewrites it when
+    Gemini is the first provider in EXTRACT_PROVIDER_ORDER: the small local model (qwen2.5:3b) writes poor Uzbek,
+    so with `local` first it is used for understanding the question (intent + product) only.
+    """
     lang = detect_lang(question, header_lang)
-    intent, how = route_intent(question, context)
-    blocks, chips, facts = TOOLS[intent](db, company, question, context or {}, lang)
+    intent, how, product = route(question, context)
+    ctx = {**(context or {}), "_product": product}
+    blocks, chips, facts = TOOLS[intent](db, company, question, ctx, lang)
     if facts.get("_intent"):
         intent = facts["_intent"]
     if intent == "price" and "fair" not in facts:  # price fell back to overview
         intent = "overview"
     text = template_answer(intent, facts, lang)
     source = "rules"
-    if llm.available():
+    order = [p for p in settings.provider_order if p != "rules"]
+    if order[:1] == ["gemini"] and llm.available() and intent not in ("greeting", "thanks"):
         lang_name = {"uz": "Uzbek (Latin)", "ru": "Russian", "en": "English"}[lang]
         out = llm.generate_text(
             f"Rewrite this answer for a shop owner in {lang_name} in at most 2 short sentences. Keep every number "
-            f"exactly; do not add numbers. Answer: {text}\nQuestion: {question}", timeout=settings.LLM_TIMEOUT_S)
-        if out:
+            f"exactly; do not add numbers. Answer: {text} Question: {question}", timeout=settings.LLM_TIMEOUT_S)
+        if out and _same_numbers(text, out):
             text, source = _two_sentences(out), "llm"
     return {"answer": _two_sentences(text), "used_data": [intent], "language": lang, "source": source,
             "intent": intent, "intent_source": how, "blocks": blocks, "chips": chips}
+
+
+def _same_numbers(original: str, rewritten: str) -> bool:
+    """A rewrite may not change, add or drop any number."""
+    nums = lambda t: sorted(re.findall(r"\d+", re.sub(r"(?<=\d)[\s .,](?=\d{3})", "", t)))  # noqa: E731
+    return nums(original) == nums(rewritten)
 
 
 def context_from_ids(db: Session, company: Company, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -478,3 +578,39 @@ def context_from_ids(db: Session, company: Company, ctx: dict[str, Any]) -> dict
         out["transaction_ids"] = list(db.scalars(select(Transaction.id).where(
             Transaction.company_id == company.id, Transaction.id.in_(out["transaction_ids"]))))
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Starter questions (empty chat)                                                #
+# --------------------------------------------------------------------------- #
+
+#: (intent the keyword router sends it to, uz, ru, en) — every question routes by rules (tested)
+_QUESTIONS: dict[str, tuple[str, str, str, str]] = {
+    "overpriced": ("stock", "Qaysi mahsulotlar bozordan qimmat?", "Какие товары слишком дорогие?",
+                   "Which units are overpriced?"),
+    "stock": ("stock", "Ombor holati qanday?", "Что с остатками на складе?", "How is my stock?"),
+    "audit": ("audit", "Hisobda qanday xatolar bor?", "Какие ошибки в учёте?", "Any errors in my books?"),
+    "profit": ("cashflow", "Bu oy foyda qancha?", "Какая прибыль в этом месяце?", "What is my profit this month?"),
+    "cashflow": ("cashflow", "Pul oqimi qanday?", "Какой доход по месяцам?", "How is my cash flow?"),
+    "budget": ("budget", "Byudjet holati qanday?", "Как исполняется бюджет?", "How is my budget?"),
+    "tax": ("tax", "Qaysi soliq rejimi arzonroq?", "Какой налоговый режим выгоднее?", "Which tax regime is cheaper?"),
+    "demand": ("demand", "Bozorda nima ko'p so'raladi?", "Какой спрос на рынке?", "What is in demand?"),
+    "credit": ("credit", "Qancha kredit olsam bo'ladi?", "Сколько кредита я могу взять?", "How big a loan can I take?"),
+    "readiness": ("loan_readiness", "Kreditga tayyorlik balim qanday?", "Какая у меня готовность к кредиту?",
+                  "What is my loan readiness?"),
+}
+_SCREEN_QUESTIONS: dict[str | None, tuple[str, ...]] = {
+    "stock": ("overpriced", "stock", "demand"),
+    "books": ("audit", "profit", "tax"),
+    "budget": ("budget", "cashflow", "audit"),
+    "exchange": ("demand", "stock", "credit"),
+    "advisor": ("credit", "readiness", "tax", "cashflow"),
+    None: ("profit", "overpriced", "readiness"),
+}
+
+
+def suggestions(screen: str | None, lang: str) -> list[dict[str, str]]:
+    """Starter questions for an empty chat on a screen; each one is answered by a Python tool."""
+    i = {"uz": 1, "ru": 2, "en": 3}.get(lang, 1)
+    return [{"question": _QUESTIONS[k][i], "intent": _QUESTIONS[k][0]}
+            for k in _SCREEN_QUESTIONS.get(screen, _SCREEN_QUESTIONS[None])]

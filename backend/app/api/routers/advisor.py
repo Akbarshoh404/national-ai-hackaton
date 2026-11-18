@@ -8,6 +8,8 @@ from app.api.schemas.advisor import (
     CashflowOut,
     ChatIn,
     ChatOut,
+    ChatScreen,
+    ChatSuggestionsOut,
     CreditIn,
     CreditOut,
     LoanReadinessOut,
@@ -26,6 +28,12 @@ def advisor_chat(body: ChatIn, db: DbDep, company: CompanyDep, lang: LangDep) ->
     out = copilot.answer(db, company, body.question, [h.model_dump() for h in body.history], ctx, lang)
     out["used_data"] = sorted({*out["used_data"], *USED_DATA.get(out["intent"], [])})
     return ChatOut(**out)
+
+
+@router.get("/chat/suggestions", response_model=ChatSuggestionsOut)
+def advisor_chat_suggestions(_: CompanyDep, lang: LangDep, screen: ChatScreen | None = None) -> ChatSuggestionsOut:
+    """Starter questions for an empty copilot chat on a screen (each routes to a Python tool by keywords)."""
+    return ChatSuggestionsOut(screen=screen, questions=copilot.suggestions(screen, lang))
 
 
 #: legacy `used_data` keys per intent (v1 clients read these)

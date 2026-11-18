@@ -113,3 +113,26 @@ def test_market_report(client):
     x = client.get("/api/v1/partner/market-report?category=car&format=xlsx", headers=BANK)
     assert x.status_code == 200
     assert load_workbook(io.BytesIO(x.content)).sheetnames == ["Models", "Weekly trend", "Seller types"]
+
+
+def test_valuation_from_free_text(client):
+    """The console sends whatever the officer typed; the fast-input parser turns it into an item."""
+    r = client.post("/api/v1/lender/valuations", headers=BANK, json={"text": "iphone 13 128gb"})
+    assert r.status_code == 200, r.text
+    v = r.json()
+    assert v["item"]["category"] == "phone" and "13" in (v["item"]["model"] or "")
+    assert v["source"]["text"] == "iphone 13 128gb" and v["fair_price_uzs"] > 0
+    assert v["liquidation_value_uzs"] < v["fair_price_uzs"]
+    assert "value_change_30d_pct" in v
+    params = client.post("/api/v1/lender/valuations", headers=BANK, json={
+        "category": "car", "model": "Cobalt", "attrs": {"year": 2021}}).json()
+    assert params["item"]["model"] == "Cobalt" and params["item"]["attrs"] == {"year": 2021}
+    empty = client.post("/api/v1/lender/valuations", headers=BANK, json={})
+    assert empty.status_code == 422 and empty.json()["error"]["code"] == "item_required"
+
+
+def test_application_product_label(client):
+    items = client.get("/api/v1/lender/applications", headers=BANK).json()["items"]
+    assert items and all(a["product_label"] and a["product_label"] != a["product"] for a in items)
+    en = client.get("/api/v1/lender/applications", headers={**BANK, "Accept-Language": "en"}).json()["items"]
+    assert {a["product_label"] for a in en} <= {"Business loan", "Dealer stock loan", "Mortgage", "Leasing"}

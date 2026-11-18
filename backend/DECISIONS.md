@@ -321,12 +321,12 @@ Choices made while building, where the spec left room. Grouped by area.
   `dockerContext: ./backend` (both relative to the repo root, no `rootDir`), plus `buildFilter` on `backend/**`.
   Secrets use `sync: false`; `ADMIN_KEY` is `generateValue`. Region Frankfurt, close to Neon `eu-central-1`.
 - **Neon compute hours:** the extractor polls the DB every 5 s and decisions rebuild every 10 min, which keeps
-  Neon awake. `docs/DEPLOY.md` explains how to switch them off to let Neon sleep.
+  Neon awake; switch them off (`WORKERS_EXTRACTOR=false`, `WORKERS_DECISIONS=false`) to let Neon sleep.
 - **Seeding** happens from a laptop (`DATABASE_URL=<neon> python -m app.cli seed --reset`), because free Render
   services have no shell.
 - **One `TG_SESSION` per running backend.** Telegram may revoke a session used from two places at once
   (`AuthKeyDuplicatedError`), and two pollers on one bot token steal each other's updates. This is documented in
-  `DEPLOY.md`, `.env.example` and `render.yaml`.
+  `.env.example` and `render.yaml`.
 
 ---
 

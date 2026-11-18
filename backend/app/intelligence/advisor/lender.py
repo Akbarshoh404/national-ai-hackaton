@@ -104,12 +104,26 @@ def value_item(db: Session, lender: Company, body: dict[str, Any], lang: str) ->
         spec = pricing.spec_from(lst)
         source = {"listing_id": lst.id, "listing_price_uzs": lst.price_uzs, "source_url": lst.source_url}
     else:
+        if not body.get("category") and body.get("text"):
+            # Free text ("malibu 2019", "iphone 13 128gb") -> structured item via the fast-input parser.
+            from app.intelligence.market import inputs
+
+            text = body["text"].strip()
+            parsed = inputs.parse_text(db, text, None)
+            if not parsed.get("category"):
+                raise AppError("item_not_recognized", "Could not recognise an item in this text", 422, {"text": text})
+            body = {**parsed, "attrs": parsed.get("attrs") or {}}
+            source = {"text": text, "parsed_by": parsed["source"]}
         if not body.get("category"):
-            raise AppError("item_required", "Send an item (category, model, attrs), a url or an inventory_id", 422)
+            raise AppError("item_required", "Send an item (category, model, attrs), text, a url or an inventory_id",
+                           422)
         spec = {k: body.get(k) for k in ("category", "model", "brand", "condition", "district")}
         spec["attrs"] = body.get("attrs") or {}
     est = pricing.estimate(db, **spec, lang=lang)
-    out = {**valuation_dict(est, spec["category"], qty), "source": source}
+    out = {**valuation_dict(est, spec["category"], qty), "source": source,
+           "item": {k: spec.get(k) for k in ("category", "brand", "model", "condition", "district")}
+           | {"attrs": spec.get("attrs") or {}},
+           "value_change_30d_pct": change_30d(db, spec["category"], spec.get("model"))}
     activity.log(db, lender, "lender.valuation", "valuation", source.get("inventory_id") or source.get("listing_id"),
                  f"Valued {spec['category']} {spec.get('model') or ''}: {round(est.fair_price_uzs):,} so'm")
     out["valuations_this_month"] = valuations_count(db, lender)
@@ -127,9 +141,10 @@ def valuations_count(db: Session, lender: Company) -> int:
 # Collateral portfolio                                                          #
 # --------------------------------------------------------------------------- #
 
-def _change_30d(db: Session, c: Collateral) -> float | None:
-    model = c.model if c.category in ("phone", "laptop", "car") else None
-    pts = market.trend(db, c.category, model, 45)
+def change_30d(db: Session, category: str, model: str | None) -> float | None:
+    """Median price change over the last ~30 days (weekly trend, first vs last point)."""
+    model = model if category in ("phone", "laptop", "car") else None
+    pts = market.trend(db, category, model, 45)
     if len(pts) < 2 or not pts[0]["median_price_uzs"]:
         return None
     return round((pts[-1]["median_price_uzs"] / pts[0]["median_price_uzs"] - 1) * 100, 1)
@@ -150,7 +165,7 @@ def revalue(db: Session, lender: Company, lang: str, create_alerts: bool = True)
         est = cache[key]
         tkey = (c.category, c.model if c.category in ("phone", "laptop", "car") else None)
         if tkey not in trend_cache:
-            trend_cache[tkey] = _change_30d(db, c)
+            trend_cache[tkey] = change_30d(db, c.category, c.model)
         row = {"id": c.id, "loan_application_id": c.loan_application_id, "borrower_name": c.borrower_name,
                "category": c.category, "brand": c.brand, "model": c.model, "condition": c.condition,
                "district": c.district, "attrs": c.attrs or {}, "qty": c.qty, "loan_balance_uzs": c.loan_balance_uzs,
@@ -301,7 +316,8 @@ def market_report(db: Session, category: str, district: str | None, days: int) -
     sellers: dict[str, int] = {}
     for model, norm, brand, dist, price, seller in rows:
         groups.setdefault((norm, dist or "—"), []).append(price)
-        names[norm] = " ".join(x for x in (brand, model) if x)
+        brand_in_model = brand and model and model.lower().startswith(brand.lower())
+        names[norm] = model if brand_in_model else " ".join(x for x in (brand, model) if x)
         sellers[seller] = sellers.get(seller, 0) + 1
     by_model = sorted(({"model": names[n], "district": d, "listings": len(v),
                         "median_price_uzs": round(float(np.median(v)))} for (n, d), v in groups.items()),

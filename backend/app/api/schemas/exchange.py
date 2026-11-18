@@ -44,6 +44,7 @@ class RfqOut(ORM):
     created_at: UTCDateTime
     quotes_count: int = 0
     my_quote_id: int | None = None
+    my_quote: QuoteOut | None = Field(None, description="The caller's own quote on this request (suppliers)")
 
 
 class RfqCreated(BaseModel):
@@ -240,3 +241,6 @@ class CounterIn(BaseModel):
 class RespondIn(BaseModel):
     accept: bool
     unit_price: float | None = Field(None, gt=0, description="When not accepting: the supplier's final price")
+
+
+RfqOut.model_rebuild()

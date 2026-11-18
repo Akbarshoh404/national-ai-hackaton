@@ -134,3 +134,27 @@ def test_demand(client, techopt):
     d = client.get("/api/v1/exchange/demand?days=30&category=phone", headers=techopt).json()
     assert d["most_requested"] and d["most_listed"]
     assert d["most_listed"][0]["listings"] >= d["most_listed"][-1]["listings"]
+
+
+def test_supplier_sees_own_quote_and_deal_by_rfq(client, chilonzor, techopt):
+    """Incoming RFQs carry the supplier's own quote (status, counter); deals filter by rfq_id."""
+    rfq = client.post("/api/v1/exchange/rfqs", headers=chilonzor, json={
+        "category": "phone", "brand": "Apple", "model": "iPhone 13", "condition": "A",
+        "attrs": {"storage_gb": 128}, "qty": 2}).json()["rfq"]
+    assert rfq["my_quote"] is None
+    q = client.post(f"/api/v1/exchange/rfqs/{rfq['id']}/quotes", headers=techopt,
+                    json={"unit_price": 4_400_000, "qty": 2, "delivery_days": 2, "note": "Kafolat 3 oy"}).json()
+    client.post(f"/api/v1/exchange/quotes/{q['id']}/counter", headers=chilonzor, json={"unit_price": 4_300_000})
+    incoming = client.get("/api/v1/exchange/rfqs?scope=incoming", headers=techopt).json()["items"]
+    mine = next(x for x in incoming if x["id"] == rfq["id"])
+    assert mine["my_quote_id"] == q["id"]
+    assert mine["my_quote"]["status"] == "countered" and mine["my_quote"]["counter_unit_price"] == 4_300_000
+    assert mine["my_quote"]["note"] == "Kafolat 3 oy"
+    # the buyer never has a quote of its own
+    assert client.get(f"/api/v1/exchange/rfqs/{rfq['id']}", headers=chilonzor).json()["my_quote"] is None
+
+    client.post(f"/api/v1/exchange/quotes/{q['id']}/respond", headers=techopt, json={"accept": True})
+    deal = client.post(f"/api/v1/exchange/quotes/{q['id']}/accept", headers=chilonzor).json()
+    by_rfq = client.get(f"/api/v1/exchange/deals?rfq_id={rfq['id']}", headers=chilonzor).json()
+    assert by_rfq["total"] == 1 and by_rfq["items"][0]["id"] == deal["id"]
+    assert client.get("/api/v1/exchange/deals?rfq_id=999999", headers=chilonzor).json()["total"] == 0

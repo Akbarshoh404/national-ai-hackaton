@@ -43,7 +43,9 @@ def rfq_out(db: DbDep, rfq: Rfq, me: Company) -> RfqOut:
     out = RfqOut.model_validate(rfq)
     out.company_name = db.get(Company, rfq.company_id).name
     out.quotes_count = db.scalar(select(func.count(Quote.id)).where(Quote.rfq_id == rfq.id)) or 0
-    out.my_quote_id = db.scalar(select(Quote.id).where(Quote.rfq_id == rfq.id, Quote.supplier_id == me.id))
+    mine = db.scalar(select(Quote).where(Quote.rfq_id == rfq.id, Quote.supplier_id == me.id))
+    out.my_quote_id = mine.id if mine else None
+    out.my_quote = QuoteOut.model_validate(mine) if mine else None
     return out
 
 
@@ -218,9 +220,12 @@ def exchange_buy_offer(offer_id: int, body: BuyIn, db: DbDep, company: CompanyDe
 
 
 @router.get("/deals", response_model=Page[DealOut])
-def exchange_list_deals(db: DbDep, company: CompanyDep, cursor: str | None = None,
+def exchange_list_deals(db: DbDep, company: CompanyDep, rfq_id: int | None = None, cursor: str | None = None,
                         limit: int = Query(50, ge=1, le=200)) -> Page[DealOut]:
+    """My deals (as buyer or seller), newest first; `rfq_id` narrows to the deal booked on one request."""
     q = select(Deal).where(or_(Deal.buyer_id == company.id, Deal.seller_id == company.id))
+    if rfq_id is not None:
+        q = q.where(Deal.rfq_id == rfq_id)
     total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
     if cursor:
         q = q.where(Deal.id < int(cursor))

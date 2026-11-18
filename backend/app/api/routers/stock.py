@@ -40,7 +40,8 @@ def stock_units(db: DbDep, company: CompanyDep, lang: LangDep, store_id: int | N
 @router.get("/summary", response_model=StockSummary)
 def stock_summary(db: DbDep, company: CompanyDep, lang: LangDep, store_id: int | None = None) -> StockSummary:
     """Top tiles: stock at cost and at market, overpriced and aging units, margin at risk."""
-    return StockSummary(**stock.summary(stock.units(db, company, lang, store_id=store_id)))
+    return StockSummary(**stock.summary(stock.units(db, company, lang, store_id=store_id)),
+                        aging_days=stock.AGING_DAYS)
 
 
 @router.post("/reprice", response_model=RepriceOut)

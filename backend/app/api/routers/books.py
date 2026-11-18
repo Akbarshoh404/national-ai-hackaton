@@ -11,8 +11,11 @@ from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import func, select
 
 from app.api.schemas.books import (
+    AuditFixOut,
+    AuditFlagOut,
     AuditOut,
     BenchmarkOut,
+    BooksSummaryOut,
     BudgetIn,
     BudgetOut,
     InventoryIn,
@@ -28,8 +31,10 @@ from app.api.schemas.books import (
 )
 from app.api.schemas.common import OkResponse, Page
 from app.core import activity
+from app.core.catalog import TXN_CATEGORY_LABELS, label
 from app.core.deps import CompanyDep, DbDep, LangDep
 from app.core.errors import AppError, not_found
+from app.core.i18n import t
 from app.core.models import InventoryItem, Transaction
 from app.intelligence.books import books
 from app.intelligence.market import stock
@@ -114,8 +119,14 @@ async def books_invoice(db: DbDep, company: CompanyDep, file: UploadFile = File(
                          created_ids=ids)
 
 
+def _tx_out(tx: Transaction, lang: str) -> TransactionOut:
+    out = TransactionOut.model_validate(tx)
+    out.category_label = label(TXN_CATEGORY_LABELS, tx.category, lang)
+    return out
+
+
 @router.get("/transactions", response_model=Page[TransactionOut])
-def books_list_transactions(db: DbDep, company: CompanyDep,
+def books_list_transactions(db: DbDep, company: CompanyDep, lang: LangDep,
                             month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
                             category: str | None = None, type: TxType | None = None, cursor: str | None = None,
                             limit: int = Query(50, ge=1, le=500),
@@ -137,7 +148,7 @@ def books_list_transactions(db: DbDep, company: CompanyDep,
         q = q.where(Transaction.id < int(cursor))
     rows = list(db.scalars(q.order_by(Transaction.id.desc()).limit(limit + 1)))
     nxt = str(rows[limit - 1].id) if len(rows) > limit else None
-    return Page(items=[TransactionOut.model_validate(r) for r in rows[:limit]], next_cursor=nxt, total=total)
+    return Page(items=[_tx_out(r, lang) for r in rows[:limit]], next_cursor=nxt, total=total)
 
 
 @router.get("/transactions/export", response_class=Response,
@@ -189,11 +200,52 @@ def books_delete_transaction(tx_id: int, db: DbDep, company: CompanyDep) -> OkRe
 
 @router.get("/audit", response_model=AuditOut)
 def books_audit(db: DbDep, company: CompanyDep, lang: LangDep) -> AuditOut:
-    """AI Auditor: duplicates, typos, wrong totals, cost spikes, overpayments."""
-    flags = books.audit_flags(db, company.id, lang)
+    """AI Auditor: duplicates, typos, wrong totals, cost spikes, overpayments.
+
+    Flags marked as checked are hidden; each flag carries its transactions, the numbers behind the message,
+    the available automatic fix and the counterparty's recent history."""
+    flags = books.open_flags(db, company.id, lang)
+    txs, history = books.flag_context(db, company.id, flags)
+    out = []
+    for f in flags:
+        first = txs.get(f["transaction_ids"][0])
+        cp = first.counterparty if first is not None else None
+        out.append(AuditFlagOut(**f, title=t(f"audit.title.{f['type']}", lang), fix=books.fix_kind(f, txs),
+                                counterparty=cp,
+                                transactions=[_tx_out(txs[i], lang) for i in f["transaction_ids"][:10] if i in txs],
+                                supplier_history=history.get(cp, []) if cp else []))
+    total = db.scalar(select(func.count(Transaction.id)).where(Transaction.company_id == company.id)) or 0
+    flagged = {i for f in flags for i in f["transaction_ids"]}
     recs, source = books.recommendations(flags, lang, company)
-    return AuditOut(summary=books.audit_summary(flags), flags=flags, recommendations=recs,
-                    recommendations_source=source)
+    return AuditOut(summary=books.audit_summary(flags), flags=out, recommendations=recs,
+                    recommendations_source=source, total_records=total, ok_records=max(total - len(flagged), 0),
+                    checked=len(books.ignored_flag_ids(db, company.id)))
+
+
+@router.post("/audit/{flag_id}/fix", response_model=AuditFixOut)
+def books_audit_fix(flag_id: str, db: DbDep, company: CompanyDep, lang: LangDep) -> AuditFixOut:
+    """Apply the flag's automatic fix (delete extra duplicates / set the computed total). 409 if it has none."""
+    f = books.find_open_flag(db, company.id, flag_id, lang)
+    res = books.fix_flag(db, company, f)
+    activity.log(db, company, "books.audit_fix", f"audit:{f['type']}", min(f["transaction_ids"]),
+                 f"Fixed: {f['message']}")
+    return AuditFixOut(**res)
+
+
+@router.post("/audit/{flag_id}/ignore", response_model=OkResponse)
+def books_audit_ignore(flag_id: str, db: DbDep, company: CompanyDep, lang: LangDep) -> OkResponse:
+    """Mark a flag as checked: it is hidden from the auditor list (recorded in the activity log)."""
+    f = books.find_open_flag(db, company.id, flag_id, lang)
+    activity.log(db, company, books.AUDIT_IGNORE_ACTION, f"audit:{f['type']}", min(f["transaction_ids"]),
+                 f"Marked as checked: {f['message']}")
+    return OkResponse()
+
+
+@router.get("/summary", response_model=BooksSummaryOut)
+def books_summary(db: DbDep, company: CompanyDep,
+                  month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")) -> BooksSummaryOut:
+    """Month totals: income, expenses, net and the estimated tax (current regime; rates unverified)."""
+    return BooksSummaryOut(**books.month_summary(db, company, month or date.today().strftime("%Y-%m")))
 
 
 @router.get("/benchmark", response_model=BenchmarkOut)
@@ -207,14 +259,21 @@ def books_set_budget(body: BudgetIn, db: DbDep, company: CompanyDep, lang: LangD
     books.set_budget(db, company, body.month, body.items)
     activity.log(db, company, "budget.update", "budget", None,
                  f"Budget {body.month}: " + ", ".join(f"{k}={round(v):,}" for k, v in body.items.items()))
-    return BudgetOut(**books.budget_status(db, company, body.month, lang))
+    return _budget_out(db, company, body.month, lang)
 
 
 @router.get("/budget", response_model=BudgetOut)
 def books_budget(db: DbDep, company: CompanyDep, lang: LangDep,
                  month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")) -> BudgetOut:
     """Budget control: plan vs fact, month-end forecast, status and explanations."""
-    return BudgetOut(**books.budget_status(db, company, month or date.today().strftime("%Y-%m"), lang))
+    return _budget_out(db, company, month or date.today().strftime("%Y-%m"), lang)
+
+
+def _budget_out(db: DbDep, company: CompanyDep, month: str, lang: str) -> BudgetOut:
+    st = books.budget_status(db, company, month, lang)
+    for it in st["items"]:
+        it["label"] = label(TXN_CATEGORY_LABELS, it["category"], lang)
+    return BudgetOut(**st, cumulative_uzs=books.budget_daily(db, company, month, st["days_elapsed"]))
 
 
 @router.get("/inventory", response_model=Page[InventoryOut])

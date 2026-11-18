@@ -121,7 +121,6 @@ httpx, google-genai (Gemini), openpyxl, WeasyPrint (optional, for PDF), pytest, 
 ├── README.md                         ← this file
 ├── start-raft.cmd / start-raft.ps1   start the backend on this machine (local hosting)
 ├── render.yaml                       Render Blueprint (free Docker web service, for later)
-├── docs/DEPLOY.md                    free hosting: Neon + Render + cron-job.org + Cloudflare tunnel + frontend
 └── backend/
     ├── app/
     │   ├── main.py                   FastAPI app: lifespan (migrations, workers, memory log), CORS, errors, routers;
@@ -917,7 +916,8 @@ Double-click it, or run it from a terminal (`.\start-raft.ps1` in PowerShell). T
 - checks the virtualenv, `backend\.env` and Ollama (`qwen2.5:3b`);
 - starts the API on `127.0.0.1:8000` with every worker from `.env`: Telegram listener, extractor, decisions
   and bot;
-- writes the log to `backend\logsaft-YYYYMMDD.log`.
+- writes the log to `backend\logs
+aft-YYYYMMDD.log`.
 
 Stop it with Ctrl+C.
 
@@ -934,7 +934,7 @@ Checks after starting:
 - **Model card:** http://127.0.0.1:8000/api/v1/model.
 
 To reach it from the internet (e.g. a hosted frontend), run `cloudflared tunnel --url http://localhost:8000`
-(see [docs/DEPLOY.md](docs/DEPLOY.md) §5) and add the frontend origin to `CORS_ORIGINS`.
+and add the frontend origin to `CORS_ORIGINS`.
 
 > **Never run `python -m app.cli seed --reset` on this database.** It drops everything, including the imported
 > Telegram posts.
@@ -942,8 +942,6 @@ To reach it from the internet (e.g. a hosted frontend), run `cloudflared tunnel 
 The Render + Neon setup below is kept for later.
 
 ### Free cloud hosting (later)
-
-Full guide: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 | Piece | Where | Notes |
 |---|---|---|

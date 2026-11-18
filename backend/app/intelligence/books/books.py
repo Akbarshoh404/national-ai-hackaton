@@ -35,10 +35,17 @@ from app.core.catalog import (
 from app.core.config import SURPLUS_PRICE_FACTOR, settings
 from app.core.errors import AppError
 from app.core.i18n import fmt_uzs, register, t
-from app.core.models import Budget, Company, InventoryItem, Transaction
+from app.core.models import ActivityLog, Budget, Company, InventoryItem, Transaction
 from app.intelligence.market import pricing
 
 register({
+    "audit.title.duplicate": {"uz": "Takroriy yozuv", "ru": "Дубликат", "en": "Duplicate entry"},
+    "audit.title.qty_mismatch": {"uz": "Jami summa noto'g'ri", "ru": "Неверная сумма", "en": "Wrong total"},
+    "audit.title.extra_zero": {"uz": "Summada ortiqcha nol", "ru": "Лишний ноль в сумме", "en": "Extra zero"},
+    "audit.title.price_spread": {"uz": "Narxlar farqi katta", "ru": "Большой разброс цен", "en": "Price spread"},
+    "audit.title.cost_spike": {"uz": "Xarajat keskin oshgan", "ru": "Скачок расходов", "en": "Cost spike"},
+    "audit.title.overpayment": {"uz": "Bozordan qimmat xarid", "ru": "Переплата", "en": "Overpayment"},
+    "audit.title.no_counterparty": {"uz": "Kontragent yo'q", "ru": "Нет контрагента", "en": "No counterparty"},
     "audit.duplicate": {
         "uz": "Takroriy yozuv: {category} {total} ({date}, {counterparty}) {n} marta kiritilgan",
         "ru": "Дубликат: {category} {total} ({date}, {counterparty}) внесено {n} раза",
@@ -418,7 +425,8 @@ def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]
             flags.append(_flag("duplicate", "high", t("audit.duplicate", lang, category=_cat(r["category"], lang),
                                                        total=fmt_uzs(r["total"], lang), date=r["date"].isoformat(),
                                                        counterparty=r["counterparty"] or "—", n=len(g)),
-                               g["id"].tolist(), float(r["total"]) * (len(g) - 1)))
+                               g["id"].tolist(), float(r["total"]) * (len(g) - 1),
+                               details={"total": float(r["total"]), "count": len(g)}))
 
     # 2. qty × unit_price ≠ total
     m = df[df["unit_price"].notna() & (df["qty"] > 0)]
@@ -429,7 +437,9 @@ def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]
                                                             unit=fmt_uzs(r.unit_price, lang),
                                                             expected=fmt_uzs(expected, lang),
                                                             total=fmt_uzs(r.total, lang)),
-                               [r.id], abs(r.total - expected)))
+                               [r.id], abs(r.total - expected),
+                               details={"qty": float(r.qty), "unit_price": float(r.unit_price),
+                                        "expected": float(expected), "total": float(r.total)}))
 
     # 3. extra-zero typos (operating expenses)
     for cat, g in exp[exp["category"] != "stock_purchase"].groupby("category"):
@@ -444,7 +454,8 @@ def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]
                 flags.append(_flag("extra_zero", "high", t("audit.extra_zero", lang, category=_cat(cat, lang),
                                                             total=fmt_uzs(r.total, lang),
                                                             median=fmt_uzs(med, lang)),
-                                   [r.id], r.total - r.total / 10))
+                                   [r.id], r.total - r.total / 10,
+                                   details={"total": float(r.total), "median": med, "fixed": float(r.total) / 10}))
 
     # 4. same model bought at prices > 25% apart
     stock = exp[(exp["category"] == "stock_purchase") & exp["model"].notna()].copy()
@@ -462,7 +473,9 @@ def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]
                 flags.append(_flag("price_spread", "medium", t("audit.price_spread", lang, model=hi["model"],
                                                                 min=fmt_uzs(lo["unit"], lang),
                                                                 max=fmt_uzs(hi["unit"], lang), pct=pct),
-                                   [lo["id"], hi["id"]], (hi["unit"] - lo["unit"]) * hi["qty"]))
+                                   [lo["id"], hi["id"]], (hi["unit"] - lo["unit"]) * hi["qty"],
+                                   details={"min_unit": float(lo["unit"]), "max_unit": float(hi["unit"]),
+                                            "qty": float(hi["qty"]), "pct": float(pct)}))
 
     # 5. utility cost spikes (> 30% vs the previous 3 months), ignoring flagged typos/duplicates
     clean = exp[~exp["id"].isin(suspicious)]
@@ -483,7 +496,9 @@ def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]
                 flags.append(_flag("cost_spike", "medium", t("audit.cost_spike", lang, category=_cat(cat, lang),
                                                               month=mon, pct=round((cur / avg - 1) * 100),
                                                               cur=fmt_uzs(cur, lang), avg=fmt_uzs(avg, lang)),
-                                   ids, cur - avg))
+                                   ids, cur - avg,
+                                   details={"month": mon, "current": cur, "average": avg,
+                                            "pct": float(round((cur / avg - 1) * 100))}))
 
     # 6. overpayment vs the live market fair purchase price
     for r in stock.itertuples() if not stock.empty else []:
@@ -499,14 +514,16 @@ def _audit_flags(db: Session, company_id: int, lang: str) -> list[dict[str, Any]
                                                           unit=fmt_uzs(r.unit, lang),
                                                           fair_buy=fmt_uzs(est.fair_buy_price_uzs, lang)),
                                [r.id], (r.unit - est.fair_buy_price_uzs) * r.qty,
-                               fair_buy_price_uzs=est.fair_buy_price_uzs))
+                               fair_buy_price_uzs=est.fair_buy_price_uzs,
+                               details={"unit": float(r.unit), "fair_buy": float(est.fair_buy_price_uzs),
+                                        "qty": float(r.qty), "pct": float(pct)}))
 
     # 7. large expenses without a counterparty
     no_cp = exp[(exp["total"] > 1_000_000) & (exp["counterparty"].isna() | (exp["counterparty"] == ""))]
     for r in no_cp.itertuples():
         flags.append(_flag("no_counterparty", "low", t("audit.no_counterparty", lang, category=_cat(r.category, lang),
                                                         total=fmt_uzs(r.total, lang), date=r.date.isoformat()),
-                           [r.id], 0.0))
+                           [r.id], 0.0, details={"total": float(r.total)}))
     order = {"high": 0, "medium": 1, "low": 2}
     flags.sort(key=lambda f: (order[f["severity"]], -f["amount_at_risk_uzs"]))
     return flags
@@ -533,6 +550,180 @@ def audit_summary(flags: list[dict[str, Any]]) -> dict[str, Any]:
         by_sev[f["severity"]] += 1
     return {"issues": len(flags), "by_type": by_type, "by_severity": by_sev,
             "amount_at_risk_uzs": round(sum(f["amount_at_risk_uzs"] for f in flags))}
+
+
+# Audit review: stable flag ids, "checked" marks (kept in the activity log), deterministic fixes -------- #
+AUDIT_IGNORE_ACTION = "books.audit_ignore"
+NON_VATABLE_CATEGORIES = ("salaries", "taxes")  # same rule as advisor.finance.tax
+
+
+def flag_id(f: dict[str, Any]) -> str:
+    """Stable id: check type + lowest transaction id (a transaction belongs to at most one flag per type)."""
+    return f"{f['type']}-{min(f['transaction_ids'])}"
+
+
+def _parse_flag_id(fid: str) -> tuple[str, int] | None:
+    type_, _, tx = fid.rpartition("-")
+    return (type_, int(tx)) if type_ and tx.isdigit() else None
+
+
+def ignored_flag_ids(db: Session, company_id: int) -> set[str]:
+    """Flags the owner marked as checked (activity rows `entity=audit:<type>`, `entity_id=<lowest tx id>`)."""
+    rows = db.execute(select(ActivityLog.entity, ActivityLog.entity_id).where(
+        ActivityLog.company_id == company_id, ActivityLog.action == AUDIT_IGNORE_ACTION))
+    return {f"{e.removeprefix('audit:')}-{i}" for e, i in rows if i is not None}
+
+
+def open_flags(db: Session, company_id: int, lang: str = "uz") -> list[dict[str, Any]]:
+    """Audit flags minus the ones marked as checked. Each flag gets its stable `id`."""
+    ignored = ignored_flag_ids(db, company_id)
+    out = []
+    for f in audit_flags(db, company_id, lang):
+        fid = flag_id(f)
+        if fid not in ignored:
+            out.append({**f, "id": fid})
+    return out
+
+
+def find_open_flag(db: Session, company_id: int, fid: str, lang: str = "uz") -> dict[str, Any]:
+    f = None
+    if _parse_flag_id(fid) is not None:
+        f = next((x for x in open_flags(db, company_id, lang) if x["id"] == fid), None)
+    if f is None:
+        raise AppError("not_found", f"Audit flag '{fid}' not found or already resolved", 404)
+    return f
+
+
+def _locked(tx: Transaction) -> bool:
+    return tx.origin == "exchange" or bool(tx.deal_id)
+
+
+def _deletable_duplicates(f: dict[str, Any], txs: dict[int, Transaction]) -> list[int]:
+    keep = min(f["transaction_ids"])
+    return [i for i in f["transaction_ids"] if i != keep and i in txs and not _locked(txs[i])]
+
+
+def fix_kind(f: dict[str, Any], txs: dict[int, Transaction]) -> str | None:
+    """What the deterministic fix does for this flag, or None when only a person can resolve it."""
+    if f["type"] == "duplicate":
+        return "delete_duplicates" if _deletable_duplicates(f, txs) else None
+    if f["type"] in ("qty_mismatch", "extra_zero"):
+        tx = txs.get(f["transaction_ids"][0])
+        return "correct_total" if tx is not None and not _locked(tx) else None
+    return None
+
+
+def fix_flag(db: Session, company: Company, f: dict[str, Any]) -> dict[str, Any]:
+    """Apply the fix: delete the extra duplicates, or set the computed total. Returns what changed."""
+    txs = {t.id: t for t in db.scalars(select(Transaction).where(Transaction.company_id == company.id,
+                                                                 Transaction.id.in_(f["transaction_ids"])))}
+    kind = fix_kind(f, txs)
+    if kind is None:
+        raise AppError("not_fixable", "This finding has no automatic fix; review it and mark it as checked", 409)
+    deleted: list[int] = []
+    updated: list[int] = []
+    if kind == "delete_duplicates":
+        deleted = _deletable_duplicates(f, txs)
+        for i in deleted:
+            db.delete(txs[i])
+    else:
+        tx = txs[f["transaction_ids"][0]]
+        d = f.get("details") or {}
+        new_total = float(d["expected"]) if f["type"] == "qty_mismatch" else round(tx.total / 10)
+        if f["type"] == "extra_zero" and tx.unit_price and abs(tx.unit_price * tx.qty - tx.total) < 1:
+            tx.unit_price = new_total / tx.qty
+        tx.total = new_total
+        updated = [tx.id]
+    db.flush()
+    _audit_cache.pop(company.id, None)
+    return {"flag_id": f["id"], "action": kind, "deleted_ids": deleted, "updated_ids": updated}
+
+
+def _tx_risk(flags: list[dict[str, Any]]) -> dict[int, float]:
+    """Money at risk attributed to single transactions (max over flags, so nothing is counted twice)."""
+    risk: dict[int, float] = {}
+
+    def put(i: int, v: float) -> None:
+        risk[i] = max(risk.get(i, 0.0), float(v))
+
+    for f in flags:
+        ids, d = f["transaction_ids"], f.get("details") or {}
+        if f["type"] == "duplicate":
+            for i in sorted(ids)[1:]:
+                put(i, d.get("total", 0.0))
+        elif f["type"] in ("qty_mismatch", "extra_zero", "overpayment"):
+            put(ids[0], f["amount_at_risk_uzs"])
+        elif f["type"] == "price_spread":
+            put(ids[-1], f["amount_at_risk_uzs"])
+    return risk
+
+
+def flag_context(db: Session, company_id: int, flags: list[dict[str, Any]], history: int = 8
+                 ) -> tuple[dict[int, Transaction], dict[str, list[dict[str, Any]]]]:
+    """Transactions behind the flags and, per counterparty, its recent expenses with the money at risk in each."""
+    ids = {i for f in flags for i in f["transaction_ids"]}
+    txs = {t.id: t for t in db.scalars(select(Transaction).where(Transaction.company_id == company_id,
+                                                                 Transaction.id.in_(ids)))} if ids else {}
+    risk = _tx_risk(flags)
+    parties = {txs[i].counterparty for f in flags for i in f["transaction_ids"][:1]
+               if i in txs and txs[i].counterparty}
+    hist: dict[str, list[dict[str, Any]]] = {}
+    for cp in parties:
+        rows = list(db.scalars(select(Transaction).where(
+            Transaction.company_id == company_id, Transaction.counterparty == cp, Transaction.type == "expense")
+            .order_by(Transaction.date.desc(), Transaction.id.desc()).limit(history)))
+        hist[cp] = [{"transaction_id": r.id, "date": r.date, "total_uzs": r.total,
+                     "at_risk_uzs": round(risk.get(r.id, 0.0))} for r in reversed(rows)]
+    return txs, hist
+
+
+def month_summary(db: Session, company: Company, month: str) -> dict[str, Any]:
+    """Income, expenses, net and the estimated tax of one month under the company's tax regime."""
+    y, m = (int(x) for x in month.split("-"))
+    start, end = date(y, m, 1), date(y, m, calendar.monthrange(y, m)[1])
+    income = expense = deductible = vatable = 0.0
+    count = 0
+    for tx in db.scalars(select(Transaction).where(Transaction.company_id == company.id,
+                                                   Transaction.date >= start, Transaction.date <= end)):
+        count += 1
+        if tx.type == "income":
+            income += tx.total
+        else:
+            expense += tx.total
+            if tx.category != "taxes":
+                deductible += tx.total
+            if tx.category not in NON_VATABLE_CATEGORIES:
+                vatable += tx.total
+    rate: float | None
+    if company.tax_regime == "vat":
+        vat_r, prof_r = settings.VAT_RATE, settings.PROFIT_TAX_RATE
+        out_vat, in_vat = income * vat_r / (1 + vat_r), vatable * vat_r / (1 + vat_r)
+        profit = (income - out_vat) - (deductible - in_vat)
+        tax, rate = max(out_vat - in_vat, 0.0) + max(profit, 0.0) * prof_r, None
+    else:
+        rate = settings.TURNOVER_TAX_RATE * 100
+        tax = income * settings.TURNOVER_TAX_RATE
+    return {"month": month, "transactions": count, "income_uzs": round(income), "expense_uzs": round(expense),
+            "net_uzs": round(income - expense), "tax_regime": company.tax_regime, "tax_rate_pct": rate,
+            "tax_estimate_uzs": round(tax), "rates_verified": False}
+
+
+def budget_daily(db: Session, company: Company, month: str, days: int) -> list[float]:
+    """Cumulative expenses at the end of each of the first `days` days of the month (same scope as budget fact)."""
+    y, m = (int(x) for x in month.split("-"))
+    start = date(y, m, 1)
+    per_day = [0.0] * days
+    if days:
+        for tx in db.scalars(select(Transaction).where(
+                Transaction.company_id == company.id, Transaction.type == "expense",
+                Transaction.category.in_(EXPENSE_CATEGORIES),
+                Transaction.date >= start, Transaction.date < start + timedelta(days=days))):
+            per_day[tx.date.day - 1] += tx.total
+    out, acc = [], 0.0
+    for v in per_day:
+        acc += v
+        out.append(round(acc))
+    return out
 
 
 def fallback_recommendations(flags: list[dict[str, Any]], lang: str) -> list[str]:

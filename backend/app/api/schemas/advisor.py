@@ -127,6 +127,19 @@ class ChatContext(BaseModel):
     rfq_id: int | None = None
 
 
+ChatScreen = Literal["stock", "books", "budget", "exchange", "advisor"]
+
+
+class ChatSuggestion(BaseModel):
+    question: str
+    intent: str = Field(description="Tool the keyword router sends this question to")
+
+
+class ChatSuggestionsOut(BaseModel):
+    screen: ChatScreen | None
+    questions: list[ChatSuggestion]
+
+
 class ChatIn(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[ChatTurn] = Field(default_factory=list)
@@ -139,7 +152,7 @@ class ChatOut(BaseModel):
     language: Literal["uz", "ru", "en"]
     source: Literal["llm", "rules"]
     intent: str = "overview"
-    intent_source: Literal["rules", "context", "llm", "default"] = "rules"
+    intent_source: Literal["rules", "context", "local", "llm", "default"] = "rules"
     blocks: list[Block] = Field(default_factory=list, description="Typed answer blocks built by Python tools")
     chips: list[Chip] = Field(default_factory=list, description="2–3 next steps the frontend can run")
 

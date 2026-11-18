@@ -14,3 +14,6 @@ scratch/
 raft.db*
 *.session
 logs/
+
+# frontend is its own git repo (github.com/mukhammadaly/raft), cloned here for local hosting
+front-end/

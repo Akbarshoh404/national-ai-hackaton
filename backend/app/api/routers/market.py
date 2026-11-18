@@ -12,6 +12,7 @@ from app.api.schemas.common import Category, Page
 from app.api.schemas.inputs import LinkIn, LinkPriceOut
 from app.api.schemas.market import (
     AskingComparison,
+    BuyQuote,
     HeatmapOut,
     ListingOut,
     MarketStats,
@@ -23,7 +24,7 @@ from app.api.schemas.market import (
     TrendOut,
 )
 from app.core.catalog import norm_model, normalize_district
-from app.core.config import RESALE_HANDLING_PCT
+from app.core.config import DEALER_MARGIN, RESALE_HANDLING_PCT
 from app.core.deps import CompanyDep, DbDep, LangDep
 from app.core.models import Listing
 from app.core.sse import sse_response
@@ -98,11 +99,20 @@ def market_stats(db: DbDep, _: CompanyDep) -> MarketStats:
 
 
 @router.post("/price", response_model=PriceEstimateOut)
-def market_price(body: PriceRequest, db: DbDep, _: CompanyDep, lang: LangDep) -> PriceEstimateOut:
-    """Pricing desk: fair price, range, trade-in price, comparables and samples."""
+def market_price(body: PriceRequest, db: DbDep, company: CompanyDep, lang: LangDep) -> PriceEstimateOut:
+    """Pricing desk: fair price, range, trade-in price, comparables, samples and the buy quote."""
     est = pricing.estimate(db, body.category, body.model, body.condition, body.district, body.attrs,
                            brand=body.brand, lang=lang)
-    return estimate_out(est, body.asking_price_uzs, lang)
+    out = estimate_out(est, body.asking_price_uzs, lang)
+    handling = round(est.fair_price_uzs * RESALE_HANDLING_PCT)
+    days, basis = stock.days_to_sell_base(db, company.id, lang).get(est.category, (None, None))
+    out.buy_quote = BuyQuote(
+        resale_price_uzs=est.fair_price_uzs, handling_pct=RESALE_HANDLING_PCT, handling_uzs=handling,
+        dealer_margin_pct=DEALER_MARGIN.get(est.category, 0.0),
+        expected_profit_uzs=est.fair_price_uzs - handling - est.fair_buy_price_uzs,
+        max_buy_price_uzs=est.fair_buy_price_uzs, max_buy_price_usd=est.fair_buy_price_usd,
+        expected_days_to_sell=days, days_basis=basis or None)
+    return out
 
 
 @router.post("/price-from-link", response_model=LinkPriceOut)
@@ -116,11 +126,15 @@ async def market_price_from_link(body: LinkIn, db: DbDep, _: CompanyDep, lang: L
 
 @router.get("/sourcing-radar", response_model=Page[ListingOut])
 def market_sourcing_radar(db: DbDep, company: CompanyDep, lang: LangDep, category: Category | None = None,
-                          min_discount_pct: float = Query(15, ge=0, le=90), days: int = Query(7, ge=1, le=30),
+                          min_discount_pct: float = Query(15, ge=0, le=90),
+                          max_discount_pct: float = Query(
+                              market.RADAR_MAX_DISCOUNT_PCT, ge=0, le=100,
+                              description="Deeper discounts are almost always mis-read prices; hidden by default"),
+                          days: int = Query(7, ge=1, le=30),
                           limit: int = Query(50, ge=1, le=200)) -> Page[ListingOut]:
     """Listings priced well below their fair price (best first)."""
     cats = [category] if category else (company.categories or [])
-    rows = market.sourcing_radar(db, cats, min_discount_pct, days, limit)
+    rows = market.sourcing_radar(db, cats, min_discount_pct, days, limit, max_discount_pct=max_discount_pct)
     base = stock.days_to_sell_base(db, company.id, lang)
     items = []
     for r in rows:

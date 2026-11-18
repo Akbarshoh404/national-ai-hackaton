@@ -28,6 +28,7 @@ class StoreOut(ORM):
     district: str | None
     area_m2: float | None
     active: bool
+    units_in_stock: int | None = Field(None, description="Units in stock at this store (list endpoint only)")
 
 
 class UserIn(BaseModel):

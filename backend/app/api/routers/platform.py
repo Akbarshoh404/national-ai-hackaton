@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
+from app.api.routers.decisions import decision_out
 from app.api.schemas.common import OkResponse, Page
+from app.api.schemas.dashboard import SearchHit, SearchOut
 from app.api.schemas.platform import (
     ActivityOut,
     IntegrationOut,
@@ -19,10 +21,11 @@ from app.api.schemas.platform import (
 )
 from app.channels import integrations
 from app.core import activity
-from app.core.catalog import normalize_district
+from app.core.catalog import TXN_CATEGORY_LABELS, label, normalize_district
 from app.core.deps import CompanyDep, DbDep, LangDep, OwnerDep, hash_key, new_api_key
 from app.core.errors import not_found
-from app.core.models import ActivityLog, Store, User
+from app.core.i18n import fmt_uzs
+from app.core.models import ActivityLog, Decision, InventoryItem, Store, Transaction, User
 
 router = APIRouter(tags=["platform"])
 
@@ -30,7 +33,11 @@ router = APIRouter(tags=["platform"])
 @router.get("/stores", response_model=Page[StoreOut])
 def stores_list(db: DbDep, company: CompanyDep) -> Page[StoreOut]:
     rows = list(db.scalars(select(Store).where(Store.company_id == company.id).order_by(Store.id)))
-    return Page(items=[StoreOut.model_validate(s) for s in rows], next_cursor=None, total=len(rows))
+    units = dict(db.execute(select(InventoryItem.store_id, func.sum(InventoryItem.qty))
+                            .where(InventoryItem.company_id == company.id, InventoryItem.status == "in_stock")
+                            .group_by(InventoryItem.store_id)).all())
+    items = [StoreOut.model_validate(s).model_copy(update={"units_in_stock": int(units.get(s.id) or 0)}) for s in rows]
+    return Page(items=items, next_cursor=None, total=len(rows))
 
 
 @router.post("/stores", response_model=StoreOut, status_code=201)
@@ -116,3 +123,52 @@ def integrations_sync(kind: str, db: DbDep, company: CompanyDep, lang: LangDep) 
     activity.log(db, company, f"integration.sync.{kind}", "integration", None,
                  f"{kind} sync ({out['mode']}): {out['created']} records, {len(out['audit_flags'])} audit flags")
     return SyncResult(**out)
+
+
+def _like(q: str) -> str:
+    return "%" + q.lower().replace("\\", "").replace("%", "").replace("_", "") + "%"
+
+
+@router.get("/search", response_model=SearchOut)
+def search(db: DbDep, company: CompanyDep, lang: LangDep, q: str = Query(..., min_length=2, max_length=80),
+           limit: int = Query(5, ge=1, le=20)) -> SearchOut:
+    """Command-palette search over the company's own stock, transactions, counterparties and pending decisions."""
+    pat = _like(q.strip())
+    hits: list[SearchHit] = []
+
+    inv = db.scalars(select(InventoryItem).where(
+        InventoryItem.company_id == company.id, InventoryItem.status == "in_stock",
+        or_(func.lower(InventoryItem.model).like(pat), func.lower(func.coalesce(InventoryItem.brand, "")).like(pat),
+            func.lower(func.coalesce(InventoryItem.identifier, "")).like(pat))).order_by(InventoryItem.id.desc())
+        .limit(limit))
+    for it in inv:
+        qty_price = f"{it.qty} x {fmt_uzs(it.list_price_uzs or it.unit_cost, lang)}"
+        hits.append(SearchHit(kind="stock", id=it.id, title=" ".join(x for x in (it.brand, it.model) if x),
+                              subtitle=" · ".join(x for x in (it.identifier, qty_price) if x)))
+
+    tx_match = or_(func.lower(func.coalesce(Transaction.counterparty, "")).like(pat),
+                   func.lower(func.coalesce(Transaction.model, "")).like(pat),
+                   func.lower(func.coalesce(Transaction.note, "")).like(pat))
+    for tx in db.scalars(select(Transaction).where(Transaction.company_id == company.id, tx_match)
+                         .order_by(Transaction.date.desc(), Transaction.id.desc()).limit(limit)):
+        title = tx.counterparty or tx.model or tx.note or label(TXN_CATEGORY_LABELS, tx.category, lang)
+        hits.append(SearchHit(kind="transaction", id=tx.id, title=title,
+                              subtitle=f"{tx.date.isoformat()} · {label(TXN_CATEGORY_LABELS, tx.category, lang)} · "
+                                       f"{'+' if tx.type == 'income' else '-'}{fmt_uzs(tx.total, lang)}"))
+
+    cps = db.execute(select(Transaction.counterparty, func.count(), func.sum(Transaction.total))
+                     .where(Transaction.company_id == company.id, Transaction.counterparty.is_not(None),
+                            func.lower(Transaction.counterparty).like(pat))
+                     .group_by(Transaction.counterparty).order_by(func.count().desc()).limit(limit)).all()
+    for name, n, total in cps:
+        hits.append(SearchHit(kind="counterparty", id=None, title=name,
+                              subtitle=f"{n} · {fmt_uzs(float(total or 0), lang)}"))
+
+    for d in db.scalars(select(Decision).where(Decision.company_id == company.id, Decision.status == "pending")
+                        .order_by(Decision.amount_uzs.desc())):
+        out = decision_out(d, lang)
+        if q.strip().lower() in f"{out.title} {out.message}".lower():
+            hits.append(SearchHit(kind="decision", id=d.id, title=out.title, subtitle=fmt_uzs(out.amount_uzs, lang)))
+            if sum(h.kind == "decision" for h in hits) >= limit:
+                break
+    return SearchOut(q=q, items=hits)

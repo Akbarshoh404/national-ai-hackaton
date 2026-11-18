@@ -56,6 +56,7 @@ class TransactionOut(ORM):
     deal_id: int | None
     store_id: int | None = None
     created_at: UTCDateTime
+    category_label: str | None = Field(None, description="Localized category name")
 
 
 class UploadError(BaseModel):
@@ -96,6 +97,33 @@ class AuditFlag(BaseModel):
     transaction_ids: list[int]
     amount_at_risk_uzs: float
     fair_buy_price_uzs: float | None = None
+    details: dict[str, float | str] = Field(default_factory=dict,
+                                            description="The computed numbers behind the message (per check type)")
+
+
+class SupplierHistoryItem(BaseModel):
+    transaction_id: int
+    date: date
+    total_uzs: float
+    at_risk_uzs: float = Field(description="Money at risk in this entry according to the open audit flags")
+
+
+class AuditFlagOut(AuditFlag):
+    id: str = Field(description="Stable id: <type>-<lowest transaction id>")
+    title: str
+    fix: Literal["delete_duplicates", "correct_total"] | None = Field(
+        description="What POST /books/audit/{id}/fix does; null = no automatic fix (only mark as checked)")
+    counterparty: str | None
+    transactions: list[TransactionOut]
+    supplier_history: list[SupplierHistoryItem] = Field(
+        description="Recent expenses with the same counterparty (oldest first)")
+
+
+class AuditFixOut(BaseModel):
+    flag_id: str
+    action: Literal["delete_duplicates", "correct_total"]
+    deleted_ids: list[int]
+    updated_ids: list[int]
 
 
 class AuditSummary(BaseModel):
@@ -107,7 +135,10 @@ class AuditSummary(BaseModel):
 
 class AuditOut(BaseModel):
     summary: AuditSummary
-    flags: list[AuditFlag]
+    flags: list[AuditFlagOut]
+    total_records: int = Field(description="All transactions of the company")
+    ok_records: int = Field(description="Transactions not involved in any open flag")
+    checked: int = Field(description="Flags marked as checked (hidden)")
     recommendations: list[str]
     recommendations_source: Literal["llm", "rules"]
 
@@ -147,6 +178,7 @@ class BudgetTx(BaseModel):
 
 class BudgetItem(BaseModel):
     category: str
+    label: str = ""
     planned_uzs: float | None
     fact_uzs: float
     used_pct: float | None
@@ -166,6 +198,20 @@ class BudgetOut(BaseModel):
     forecast_total_uzs: float
     used_pct: float | None
     explanations: list[str]
+    cumulative_uzs: list[float] = Field(default_factory=list,
+                                        description="Cumulative expenses at the end of each elapsed day")
+
+
+class BooksSummaryOut(BaseModel):
+    month: str
+    transactions: int
+    income_uzs: float
+    expense_uzs: float
+    net_uzs: float
+    tax_regime: str
+    tax_rate_pct: float | None = Field(description="Turnover tax rate; null under VAT (VAT + profit tax)")
+    tax_estimate_uzs: float
+    rates_verified: bool
 
 
 class InventoryIn(BaseModel):

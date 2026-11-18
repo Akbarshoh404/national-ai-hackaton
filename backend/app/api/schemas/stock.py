@@ -51,6 +51,7 @@ class StockSummary(BaseModel):
     overpricing_at_risk_uzs: float = Field(description="Σ (list − suggested) on overpriced units")
     aging_cash_tied_uzs: float = Field(description="Cash tied up in units older than SLOW_STOCK_DAYS")
     margin_at_risk_uzs: float
+    aging_days: int = Field(description="`units_older_30d` and `aging_only` count units older than this")
 
 
 class RepriceItem(BaseModel):

@@ -23,7 +23,7 @@ CASES = [
     ("Bank uchun biznes-reja kerak", None, "loan_readiness", {"kpi_row", "steps"}),
     ("Мне нужен бизнес-план", None, "loan_readiness", {"kpi_row", "steps"}),
     ("What is in demand right now?", None, "demand", {"bar_chart", "table"}),
-    ("Salom", None, "overview", {"kpi_row"}),
+    ("Do‘konim ahvoli qanday?", None, "overview", {"kpi_row"}),
     ("nima qilay?", {"screen": "budget"}, "budget", {"bar_chart", "kpi_row"}),
 ]
 
@@ -70,24 +70,71 @@ def test_context_selected_rows(client, chilonzor):
 
 
 def test_blocks_untouched_by_llm(client, chilonzor, monkeypatch):
-    """Blocks are built by the tool before the LLM call and passed through unchanged."""
+    """Blocks are built by the tool before the LLM call and passed through unchanged; a rewrite that changes a
+    number is rejected and the template answer is kept."""
     q = "100 mln kredit 24 oyga"
     plain = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": q}).json()
     monkeypatch.setattr(llm, "available", lambda: True)
     monkeypatch.setattr(llm, "generate_text", lambda *a, **k: "Kredit 999 999 999 so'm. Ikkinchi gap. Uchinchi gap.")
     with_llm = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": q}).json()
-    assert with_llm["source"] == "llm" and with_llm["blocks"] == plain["blocks"]
-    assert with_llm["answer"] == "Kredit 999 999 999 so'm. Ikkinchi gap."
-    assert "999999999" not in str(with_llm["blocks"]).replace(" ", "")
+    assert with_llm["blocks"] == plain["blocks"]
+    assert with_llm["source"] == "rules" and with_llm["answer"] == plain["answer"]  # changed numbers → rejected
+    monkeypatch.setattr(llm, "generate_text", lambda *a, **k: plain["answer"] + " Qo'shimcha gap. Uchinchi gap.")
+    kept = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": q}).json()
+    assert kept["source"] == "llm" and kept["blocks"] == plain["blocks"]
+    assert len(re.findall(r"[.!?](\s|$)", kept["answer"])) <= 2
 
 
-def test_llm_picks_intent_only_when_rules_fail(monkeypatch):
+def test_local_model_does_not_write_answers(client, chilonzor, monkeypatch):
+    """With the local model first, it only routes; the answer is the template (qwen2.5:3b writes poor Uzbek)."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "EXTRACT_PROVIDER_ORDER", "local,gemini,rules")
     monkeypatch.setattr(llm, "available", lambda: True)
-    monkeypatch.setattr(llm, "generate_json", lambda *a, **k: {"intent": "tax", "fair_uzs": 1})
-    assert copilot.route_intent("hmm???", None) == ("tax", "llm")
-    assert copilot.route_intent("soliq qancha?", None) == ("tax", "rules")
-    monkeypatch.setattr(llm, "generate_json", lambda *a, **k: {"intent": "steal_money"})
-    assert copilot.route_intent("hmm???", None) == ("overview", "default")
+    monkeypatch.setattr(llm, "generate_text", lambda *a, **k: "Boshqa matn.")
+    out = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": "100 mln kredit 24 oyga"}).json()
+    assert out["source"] == "rules" and out["answer"] != "Boshqa matn."
+
+
+def test_greeting_and_thanks(client, chilonzor):
+    for q, intent in [("Salom", "greeting"), ("assalomu alaykum!", "greeting"), ("Привет", "greeting"),
+                      ("rahmat", "thanks"), ("Спасибо!", "thanks")]:
+        out = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": q}).json()
+        assert out["intent"] == intent and out["blocks"] == [] and len(out["chips"]) == 3, (q, out)
+        for c in out["chips"]:
+            assert _route_exists(c["action"]["method"], c["action"]["endpoint"]), c
+    # a greeting followed by a real question is not small talk
+    assert copilot.route_intent("salom, iPhone 13 narxi qancha?", None)[0] == "price"
+    assert copilot.route_intent("hisobimda xato bormi", None)[0] == "audit"  # "hi" inside a word
+
+
+@pytest.mark.parametrize("question", ["iphone 13ni narxi qancha", "iPhone 13 128 nechpul", "сколько стоит iPhone 13"])
+def test_price_with_uzbek_suffixes(client, chilonzor, question):
+    out = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": question}).json()
+    assert out["intent"] == "price", out
+    assert {b["type"] for b in out["blocks"]} == {"price_range", "comparables"}
+
+
+def test_model_aliases():
+    assert copilot._aliases("galaxy a54") == ["galaxy a54", "a54"]
+    assert copilot._aliases("galaxy tab") == ["galaxy tab"]  # no digit → too generic to match alone
+    assert copilot._aliases("iphone 13") == ["iphone 13"]
+
+
+def test_local_model_routes_with_product(monkeypatch):
+    """When rules and context fail, the local model names the tool and the product (never numbers)."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "EXTRACT_PROVIDER_ORDER", "local,rules")
+    monkeypatch.setattr(llm, "local_suspended", lambda: False)
+    monkeypatch.setattr(llm, "local_chat_json", lambda *a, **k: {"intent": "price", "product": "iPhone 13"})
+    assert copilot.route("bu telefon arzonmi?", None) == ("price", "local", "iPhone 13")
+
+    def down(*a, **k):
+        raise llm.LocalLLMError("down")
+
+    monkeypatch.setattr(llm, "local_chat_json", down)
+    assert copilot.route("bu telefon arzonmi?", None) == ("overview", "default", "")
 
 
 def test_annuity_schedule_sums(client, chilonzor):
@@ -138,3 +185,24 @@ def test_roadmap_questions_use_existing_numbers_only(client, chilonzor):
         assert all(b["type"] != "file" for b in out["blocks"])
         endpoints = [c["action"]["endpoint"] for c in out["chips"]]
         assert not any("expansion" in e or "business-plan" in e for e in endpoints)
+
+
+@pytest.mark.parametrize("screen", [None, "stock", "books", "budget", "exchange", "advisor"])
+@pytest.mark.parametrize("lang", ["uz", "ru", "en"])
+def test_chat_suggestions_route_to_their_tool(client, chilonzor, screen, lang):
+    """Starter questions come from the backend and each one is routed by the keyword rules to its tool."""
+    r = client.get("/api/v1/advisor/chat/suggestions", headers={**chilonzor, "Accept-Language": lang},
+                   params={"screen": screen} if screen else None)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["screen"] == screen and 3 <= len(out["questions"]) <= 4
+    for s in out["questions"]:
+        assert copilot.route_intent(s["question"], {"screen": screen}) == (s["intent"], "rules"), s
+
+
+def test_chat_suggestion_answers(client, chilonzor):
+    qs = client.get("/api/v1/advisor/chat/suggestions?screen=advisor", headers=chilonzor).json()["questions"]
+    for s in qs:
+        out = client.post("/api/v1/advisor/chat", headers=chilonzor,
+                          json={"question": s["question"], "context": {"screen": "advisor"}}).json()
+        assert out["intent"] == s["intent"] and out["blocks"]

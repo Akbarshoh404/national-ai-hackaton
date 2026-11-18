@@ -1,5 +1,5 @@
 # Render Blueprint — free Docker web service for the Raft backend.
-# Database: Neon (free PostgreSQL), set DATABASE_URL in the dashboard. See docs/DEPLOY.md.
+# Database: Neon (free PostgreSQL), set DATABASE_URL in the dashboard.
 services:
   - type: web
     name: raft-api

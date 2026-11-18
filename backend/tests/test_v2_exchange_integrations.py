@@ -68,6 +68,15 @@ def test_demand_by_district_and_radar_fields(client, chilonzor, techopt):
     assert r["expected_days_to_sell"] and r["expected_days_to_sell"] > 0
 
 
+def test_radar_hides_misread_prices(client, chilonzor):
+    """Discounts above the cap (default 70%) are mis-read prices; they are hidden unless asked for."""
+    default = client.get("/api/v1/market/sourcing-radar?days=30&limit=200", headers=chilonzor).json()["items"]
+    assert all(i["discount_pct"] <= 70 for i in default)
+    capped = client.get("/api/v1/market/sourcing-radar?days=30&max_discount_pct=20&limit=200",
+                        headers=chilonzor).json()["items"]
+    assert all(15 <= i["discount_pct"] <= 20 for i in capped)
+
+
 def test_integrations_cards_and_didox_sync(client, chilonzor):
     cards = {c["kind"]: c for c in client.get("/api/v1/integrations", headers=chilonzor).json()}
     assert set(cards) == {"telegram", "didox", "soliq", "billz", "onec", "bank"}

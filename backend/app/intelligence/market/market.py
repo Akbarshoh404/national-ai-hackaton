@@ -96,14 +96,19 @@ def stats(db: Session) -> dict[str, Any]:
     }
 
 
+# A listing 70%+ below its fair price is almost always a mis-read price (e.g. "$1"), not a bargain.
+RADAR_MAX_DISCOUNT_PCT = 70.0
+
+
 def sourcing_radar(db: Session, categories: list[str], min_discount_pct: float, days: int,
-                   limit: int = 50) -> list[Listing]:
-    """Recent listings priced at least `min_discount_pct` below their fair price."""
+                   limit: int = 50, max_discount_pct: float | None = None) -> list[Listing]:
+    """Recent listings priced at least `min_discount_pct` (and at most `max_discount_pct`) below their fair price."""
     since = utcnow() - timedelta(days=days)
-    q = (select(Listing).where(Listing.category.in_(categories), Listing.posted_at >= since,
-                               Listing.is_duplicate.is_(False), Listing.discount_pct >= min_discount_pct)
-         .order_by(Listing.discount_pct.desc()).limit(limit))
-    return list(db.scalars(q))
+    q = select(Listing).where(Listing.category.in_(categories), Listing.posted_at >= since,
+                              Listing.is_duplicate.is_(False), Listing.discount_pct >= min_discount_pct)
+    if max_discount_pct is not None:
+        q = q.where(Listing.discount_pct <= max_discount_pct)
+    return list(db.scalars(q.order_by(Listing.discount_pct.desc()).limit(limit)))
 
 
 def trend(db: Session, category: str, model: str | None, days: int) -> list[dict[str, Any]]:

@@ -57,6 +57,20 @@ class AskingComparison(BaseModel):
     badge: str
 
 
+class BuyQuote(BaseModel):
+    """Buy desk (pricing desk only): what to pay so the resale still leaves the dealer margin."""
+
+    resale_price_uzs: float = Field(description="Fair market price the unit resells at")
+    handling_pct: float = Field(description="Resale handling cost share (RESALE_HANDLING_PCT)")
+    handling_uzs: float
+    dealer_margin_pct: float = Field(description="DEALER_MARGIN for the category")
+    expected_profit_uzs: float = Field(description="resale − handling − max buy price")
+    max_buy_price_uzs: float = Field(description="= fair_buy_price_uzs")
+    max_buy_price_usd: float
+    expected_days_to_sell: float | None = Field(None, description="From your own sales, else config default")
+    days_basis: str | None = None
+
+
 class PriceEstimateOut(BaseModel):
     category: str
     fair_price_uzs: float
@@ -71,6 +85,7 @@ class PriceEstimateOut(BaseModel):
     price_by_seller_type: dict[str, float] | None = None
     per_m2_uzs: float | None = None
     asking: AskingComparison | None = None
+    buy_quote: BuyQuote | None = Field(None, description="Only on POST /market/price")
 
 
 class MarketStats(BaseModel):

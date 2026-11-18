@@ -20,6 +20,7 @@ def test_planted_stock_detected(client, chilonzor):
     assert s["units_older_30d"] == 14  # 6 aging + 8 slow
     assert s["stock_value_market_uzs"] > s["stock_value_cost_uzs"] > 0
     assert s["margin_at_risk_uzs"] == s["overpricing_at_risk_uzs"] + s["aging_cash_tied_uzs"]
+    assert s["aging_days"] == 30 and s["slow_stock_days"] == 60
     page = _units(client, chilonzor, rating="overpriced")
     assert page["total"] == 14
     u = page["items"][0]

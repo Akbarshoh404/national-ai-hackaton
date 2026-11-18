@@ -12,7 +12,8 @@ from app.api.schemas.market import PriceSample, TrendPoint
 
 
 class ValuationIn(BaseModel):
-    """One of: item parameters (as /market/price), `url` (t.me link) or `inventory_id` of an applicant."""
+    """One of: item parameters (as /market/price), free `text` ("malibu 2019"), `url` (t.me link) or
+    `inventory_id` of an applicant."""
 
     category: Category | None = None
     brand: str | None = None
@@ -20,8 +21,18 @@ class ValuationIn(BaseModel):
     condition: str | None = None
     district: str | None = None
     attrs: dict[str, Any] = Field(default_factory=dict)
+    text: str | None = Field(None, max_length=500, description="Free text, parsed like /input/parse")
     url: str | None = None
     inventory_id: int | None = None
+
+
+class ValuedItem(BaseModel):
+    category: str
+    brand: str | None
+    model: str | None
+    condition: str | None
+    district: str | None
+    attrs: dict[str, Any]
 
 
 class ValuationOut(BaseModel):
@@ -39,6 +50,8 @@ class ValuationOut(BaseModel):
     basis: str
     samples: list[PriceSample]
     source: dict[str, Any]
+    item: ValuedItem = Field(description="The item that was valued (parsed text, listing or inventory unit)")
+    value_change_30d_pct: float | None = Field(description="Median price change of this model over ~30 days")
     valuations_this_month: int
 
 
@@ -108,6 +121,7 @@ class LoanApplicationOut(ORM):
     lender_id: int
     lender_name: str = ""
     product: str
+    product_label: str = ""
     principal_uzs: float
     months: int
     purpose: str

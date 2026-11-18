@@ -55,12 +55,31 @@ $env:HOST = if ($Lan) { "0.0.0.0" } else { "127.0.0.1" }
 if ($Port -gt 0) { $env:PORT = "$Port" }
 if ($NoExtractor) { $env:WORKERS_EXTRACTOR = "false" }
 
+# Resolve the port the same way the app does: -Port, then $env:PORT, then PORT in backend\.env, else 8000.
+$effectivePort = 8000
+if ($Port -gt 0) { $effectivePort = $Port }
+elseif ($env:PORT) { $effectivePort = [int]$env:PORT }
+else {
+    $line = Get-Content (Join-Path $backend ".env") | Where-Object { $_ -match '^\s*PORT\s*=\s*(\d+)' } | Select-Object -First 1
+    if ($line -and $line -match '(\d+)') { $effectivePort = [int]$Matches[1] }
+}
+
+# Refuse to start a second copy: it could not bind the port anyway.
+$busy = Get-NetTCPConnection -LocalPort $effectivePort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($busy) {
+    $owner = Get-Process -Id $busy.OwningProcess -ErrorAction SilentlyContinue
+    Write-Host "Port $effectivePort is already in use by process $($busy.OwningProcess) ($($owner.ProcessName))." -ForegroundColor Red
+    Write-Host "Raft is probably already running: open http://127.0.0.1:$effectivePort/docs"
+    Write-Host "To restart it, stop that process first:  Stop-Process -Id $($busy.OwningProcess)"
+    Write-Host "Or start on another port:                 .\start-raft.ps1 -Port 9000"
+    exit 1
+}
+
 $logDir = Join-Path $backend "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir ("raft-" + (Get-Date -Format "yyyyMMdd") + ".log")
 
-$shown = if ($Port -gt 0) { $Port } else { "PORT from .env (default 8000)" }
-Write-Host "Starting Raft on $($env:HOST):$shown  (Swagger: http://127.0.0.1:<port>/docs)  log: $log" -ForegroundColor Cyan
+Write-Host "Starting Raft on $($env:HOST):$effectivePort  (Swagger: http://127.0.0.1:$effectivePort/docs)  log: $log" -ForegroundColor Cyan
 if (-not $NoExtractor) {
     Write-Host "The extractor worker will process pending Telegram posts in the background (use -NoExtractor to hold them)."
 }
@@ -70,7 +89,10 @@ try {
     # uvicorn logs to stderr; let cmd merge the streams so PowerShell sees plain text, not error records.
     # Write the log as UTF-8 (Tee-Object in Windows PowerShell 5 would write UTF-16).
     $ErrorActionPreference = "Continue"
-    $writer = [System.IO.StreamWriter]::new($log, $true, [System.Text.UTF8Encoding]::new($false))
+    # FileShare.ReadWrite: the log can be tailed (or held by another tool) without crashing the start.
+    $stream = [System.IO.FileStream]::new($log, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::ReadWrite)
+    $writer = [System.IO.StreamWriter]::new($stream, [System.Text.UTF8Encoding]::new($false))
     $writer.AutoFlush = $true
     try {
         cmd /c "`"$python`" -m app.main 2>&1" | ForEach-Object { $_; $writer.WriteLine($_) }
