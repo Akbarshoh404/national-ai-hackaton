@@ -3,12 +3,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "@/i18n";
-import type { Chip } from "@/lib/api/schemas";
 import { Conversation } from "./conversation";
-
-const ask = (label: string, message: string): Chip => ({ label, action: { endpoint: "/advisor/chat", method: "POST", body: { message } } });
-
-const SUGGESTIONS = [ask("Budjet holati", "budjet"), ask("Qimmat narxlar", "ombor qimmat"), ask("Savdo qanday?", "savdo")];
 
 export function CopilotPanel({ open, onClose, context }: { open: boolean; onClose: () => void; context: { screen: string; selected_ids: string[] } }) {
   const t = useT();
@@ -38,7 +33,7 @@ export function CopilotPanel({ open, onClose, context }: { open: boolean; onClos
           <X size={18} strokeWidth={1.75} aria-hidden />
         </button>
       </div>
-      {open ? <Conversation compact autoFocus initial={[]} context={context} empty={{ text: "Raqamlarni Python hisoblaydi, yordamchi ularni tushuntiradi.", chips: SUGGESTIONS }} /> : null}
+      {open ? <Conversation compact autoFocus context={context} hint="Raqamlarni Python hisoblaydi, yordamchi ularni tushuntiradi." /> : null}
     </aside>
   );
 }

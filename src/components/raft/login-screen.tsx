@@ -2,14 +2,11 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { resetDemo } from "@/lib/api/fixtures/server";
 import { ACCOUNTS, homeFor, setAccount, type Account } from "@/lib/auth";
 
 export function LoginScreen() {
   const router = useRouter();
   const qc = useQueryClient();
-  const [resetDone, setResetDone] = useState(false);
 
   const choose = (account: Account) => {
     setAccount(account.id);
@@ -42,20 +39,6 @@ export function LoginScreen() {
           ))}
         </ul>
       </section>
-      <div className="flex items-center gap-2 text-[13px] text-text-2">
-        <button
-          type="button"
-          className="btn btn-plain -ml-2"
-          onClick={() => {
-            resetDemo();
-            qc.clear();
-            setResetDone(true);
-          }}
-        >
-          Demo ma’lumotlarini tiklash
-        </button>
-        {resetDone ? <span role="status">Boshlang‘ich holatga qaytarildi.</span> : null}
-      </div>
     </main>
   );
 }

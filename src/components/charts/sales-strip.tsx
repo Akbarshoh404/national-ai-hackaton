@@ -4,7 +4,8 @@ import { dateShort, pctSigned, usd } from "@/lib/format";
 import { clamp } from "@/lib/utils";
 import { ChartTip, roundedTopBar, useCursor, useWidth } from "./base";
 
-export function SalesStrip({ days, plan, caption, todayLabel, height = 88 }: { days: { date: string; value: number }[]; plan: number; caption: string; todayLabel: string; height?: number }) {
+/** Daily sales bars against a reference line (e.g. the 30-day average); `vsLabel` prefixes the tooltip delta. */
+export function SalesStrip({ days, plan, caption, todayLabel, vsLabel, height = 88 }: { days: { date: string; value: number }[]; plan: number; caption: string; todayLabel: string; vsLabel: string; height?: number }) {
   const [ref, width] = useWidth();
   const { active, setActive, chartProps } = useCursor(days.length);
   const max = Math.max(...days.map((d) => d.value), plan) * 1.04;
@@ -21,7 +22,7 @@ export function SalesStrip({ days, plan, caption, todayLabel, height = 88 }: { d
             width={width}
             height={height}
             role="img"
-            aria-label={`So‘nggi 30 kunlik savdo, reja ${usd(plan)}`}
+            aria-label={`So‘nggi ${days.length} kunlik savdo, ${caption} ${usd(plan)}`}
             {...chartProps}
             onPointerMove={(e) => {
               const box = e.currentTarget.getBoundingClientRect();
@@ -51,7 +52,7 @@ export function SalesStrip({ days, plan, caption, todayLabel, height = 88 }: { d
           <ChartTip x={active * step + step / 2} y={-8} width={width} flipAt={130}>
             <div className="meta mono">{dateShort(day.date)}</div>
             <div className="mono">{usd(day.value)}</div>
-            <div className="meta">rejaga {pctSigned(((day.value - plan) / plan) * 100)}</div>
+            <div className="meta">{vsLabel} {pctSigned(((day.value - plan) / plan) * 100)}</div>
           </ChartTip>
         ) : null}
       </div>

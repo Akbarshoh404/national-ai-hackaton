@@ -59,7 +59,7 @@ export const uz = {
     spend: "Xarajat",
     lastYear: "o‘tgan yil",
     net: "Sof",
-    budget: "Budjet · noyabr",
+    budget: "Budjet",
     credit: "Kredit tayyorligi",
     offers: "{n} ta bank taklif bermoqda",
     activity: "So‘nggi faoliyat",

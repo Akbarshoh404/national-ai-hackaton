@@ -25,13 +25,11 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useT } from "@/i18n";
 import type { Dictionary } from "@/i18n/uz";
-import { dataSourceStore } from "@/lib/api/client";
 import { useActivity } from "@/lib/api/hooks";
 import { ACCOUNTS, homeFor, setAccount, useAccount, type Account } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -92,6 +90,8 @@ export function navFor(account: Account): NavItem[] {
   }
   if (account.kind === "bazaar") return [{ href: "/partner", label: "hisobot", icon: ArrowLeftRight, match: "/partner" }];
   if (account.kind === "supplier") return [{ href: "/birja", label: "birja", icon: ArrowLeftRight, match: "/birja" }];
+  // Appraisers may only use market, pricing and inventory (backend core/permissions.py).
+  if (account.roleCode === "appraiser") return [{ href: "/narxlar", label: "narxlar", icon: Tag, match: "/narxlar" }];
   return [
     { href: "/bugun", label: "bugun", icon: LayoutGrid, match: "/bugun" },
     { href: "/narxlar", label: "narxlar", icon: Tag, match: "/narxlar" },
@@ -102,6 +102,7 @@ export function navFor(account: Account): NavItem[] {
 }
 
 function allowed(account: Account, path: string) {
+  if (account.roleCode === "appraiser") return path.startsWith("/narxlar");
   if (path === "/model" || path === "/sozlama") return true;
   if (account.kind === "bank" || account.kind === "bazaar") return path.startsWith("/partner");
   if (account.kind === "supplier") return path.startsWith("/birja");
@@ -201,7 +202,7 @@ function Sidebar({ account }: { account: Account }) {
         ))}
       </div>
       <div className="mt-auto flex flex-col items-center gap-2 max-md:mt-0 max-md:flex-row">
-        <NavLink item={{ href: "/sozlama", icon: Settings }} label={t.nav.sozlama} active={path.startsWith("/sozlama")} />
+        {account.roleCode !== "appraiser" ? <NavLink item={{ href: "/sozlama", icon: Settings }} label={t.nav.sozlama} active={path.startsWith("/sozlama")} /> : null}
         <AccountSwitcher account={account} />
       </div>
     </nav>
@@ -260,8 +261,7 @@ export function Page({
 }) {
   const t = useT();
   const { openPalette, toggleCopilot, copilotOpen, account } = useShell();
-  const source = useSyncExternalStore(dataSourceStore.subscribe, dataSourceStore.get, dataSourceStore.getServer);
-  const showCopilot = account.kind === "business";
+  const showCopilot = account.kind === "business" && account.roleCode !== "appraiser";
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-5">
       <header className="glass relative z-20 flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 rounded-[36px] py-2 pr-3 pl-5 xl:flex-nowrap">
@@ -277,7 +277,7 @@ export function Page({
         ) : null}
         {subtitle ? <p className="truncate-1 text-[14px] text-text-2">{subtitle}</p> : null}
         <div className="ml-auto flex min-w-0 items-center justify-end gap-1 xl:flex-1 xl:basis-0">
-          {source === "fixtures" ? <span className="mr-3 hidden text-[12px] text-muted whitespace-nowrap lg:inline">{t.shell.demoData}</span> : null}
+          {account.roleCode !== "appraiser" ? (
           <button
             type="button"
             onClick={openPalette}
@@ -287,6 +287,7 @@ export function Page({
             <span className="max-lg:sr-only">{t.shell.search}</span>
             <span className="mono ml-auto text-[11px] max-lg:hidden">Ctrl K</span>
           </button>
+          ) : null}
           {showCopilot ? (
             <button type="button" className="icon-btn" aria-label={t.shell.copilot} aria-pressed={copilotOpen} onClick={toggleCopilot}>
               <PanelRight size={20} strokeWidth={1.75} aria-hidden />
@@ -343,7 +344,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && account?.roleCode !== "appraiser") {
         e.preventDefault();
         openerRef.current = document.activeElement as HTMLElement | null;
         setPaletteOpen((v) => !v);
@@ -351,7 +352,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [account]);
 
   const value = useMemo<ShellValue | null>(
     () =>
@@ -388,7 +389,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} account={account} />
-      {account.kind === "business" ? <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={copilotContext} /> : null}
+      {account.kind === "business" && account.roleCode !== "appraiser" ? <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={copilotContext} /> : null}
       {undo ? <UndoBar undo={undo} onClose={closeUndo} /> : null}
     </ShellContext.Provider>
   );

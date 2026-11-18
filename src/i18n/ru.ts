@@ -61,7 +61,7 @@ export const ru: Dictionary = {
     spend: "Расходы",
     lastYear: "прошлый год",
     net: "Чистая",
-    budget: "Бюджет · ноябрь",
+    budget: "Бюджет",
     credit: "Готовность к кредиту",
     offers: "Предложений от банков: {n}",
     activity: "Последние действия",

@@ -4,12 +4,12 @@ Each entry records a choice made while building, and why.
 
 ## Environment and data
 
-- **Backend was not running during the build.** `http://localhost:8000/openapi.json` refused connections, so `src/lib/api/schema.d.ts` is not generated. Run `npm run gen:api` once it is up. All endpoint paths and response shapes are provisional until then.
-- **Fixtures are a stateful in-browser server** (`src/lib/api/fixtures/server.ts`), stored in `localStorage` under `raft_demo_state_v1`. A plain static fixture could not carry the demo path across account switches (a TechOpt quote reaching the shop, a loan application reaching the bank).
-- **Fallback rule.** In `auto` mode the client falls back on network failure, 5xx, and also on 404, 405 or a response that fails Zod parsing. The last three go beyond the brief, because real paths and shapes are unconfirmed and a demo should not break on them.
-- **Same-origin health check.** `/api/health` probes the backend from the server. A direct browser call to a stopped backend logs a console error, which the quality bar forbids.
-- **Demo keys** come from the master prompt. `demo-techopt` is a guess, since no backend README was available.
-- **Demo date.** The seed is anchored to Tuesday 17 November 2026 (`DEMO_TODAY`), as in the Figma frames, so the top bar date agrees with "Bugun" in the charts.
+- **Backend only, no fixtures.** Every screen reads the Raft FastAPI backend. `src/lib/api/client.ts` has no fallback: an HTTP error or a response that fails its Zod schema is shown as an error state, never replaced by sample data. (The original in-browser fixture server was removed once the screens were wired to the real API.)
+- **Two layers of types.** `src/lib/api/backend/<section>.ts` holds Zod schemas of the real backend responses plus `map` functions that turn them into what each screen renders. Hooks live in `src/lib/api/hooks/<section>.ts`. Formatting (money, dates, percents) happens in the frontend; every number comes from the backend.
+- **Missing data was added to the backend, not invented.** Where a screen needed data the API did not return (dashboard sales and insight, `/search`, books summary, audit fix/ignore, chat suggestions, buy quote, valuation from free text), it was computed in Python with tests. Where the data does not exist at all (a sales plan, last-year series, per-row weekly change in the market report, battery and box price effects), the UI element was removed.
+- **Money is shown in so‘m** wherever the backend works in UZS; USD appears only where the backend provides a USD figure or rate.
+- **Demo keys** match the backend seed: `demo-<company slug>` or `demo-<user slug>` (see `src/lib/auth.ts`).
+- **Appraisers** only call market, pricing and inventory endpoints; the backend forbids the rest (`core/permissions.py`).
 
 ## Stack
 
@@ -30,12 +30,6 @@ Each entry records a choice made while building, and why.
 - All text on the decision tile is pure white, because reduced-opacity white fails contrast on jade.
 - Rating text uses darker variants of indigo. The series colour is kept for the swatch.
 
-## Seed numbers
-
-- Figma's cash flow tile says "+28 mln" average profit, while the credit screens say ~42 mln a month. The cash flow seed now averages 42 mln, so the 38% payment ratio and the bank's numbers agree everywhere.
-- Figma's activity feed mentions a finished TechOpt deal and an accepted Sam Xit quote. They are attributed to RFQ #147, so they do not contradict the open RFQ #148.
-- "iPhone 14 bozordan 16% arzon" in Figma disagrees with the radar's −11% for the same item. The decision uses −11%.
-
 ## Roles
 
 - TechOpt lands on `/birja`, not `/bugun`. Its frame is the supplier workspace, and the shop's dashboard would show another company's numbers.
@@ -44,19 +38,16 @@ Each entry records a choice made while building, and why.
 
 ## Demo flow
 
-- **Didox sync.** The seed already holds all 4 audit flags, so Kitoblar opens as in Figma. Sync marks the two Didox flags "Didox’dan yangi", reports them and selects invoice #2231, rather than adding rows that would break the "4 / 412" numbers.
-- **Loan application.** The bank sees Chilonzor's application only after consent, so "Yangi arizalar" reads 1 before the demo step and 2 after it. Showing it earlier would contradict the consent story.
-- **Live feed** moves only when the presenter presses "Keyingi e’lonni o‘qish", because section 8 forbids fake live activity.
-- **The IMEI scan button** fills a sample IMEI. There is no camera flow.
-- **Copilot answers on fixtures are rule-based**, keyed on words such as kredit, budjet, savdo, ombor or a model name.
-- **Excel exports are real `.xlsx` files**, written by `src/lib/xlsx.ts` with no added dependency. The 1C export stays CSV. On fixtures, uploaded `.xlsx` and 1C files show sample columns with a warning; CSV files are really parsed.
+- **Didox sync** calls `POST /integrations/didox/sync`; flags touching the imported transactions are marked "Didox’dan yangi" and selected first.
+- **Live feed** refreshes from `GET /market/listings` every 30 s; the Telegram listener reads posts, there is no "read next post" button.
+- **Copilot** answers come from `POST /advisor/chat` and render the backend's answer blocks; starter questions come from `GET /advisor/chat/suggestions`.
+- **Exports** (stock, transactions, market report) are generated by the backend and downloaded as files.
 - **Dropdowns use a restyled Radix Select**, because native option lists cannot follow the design system.
 
 ## Cut, following the prompt's cut order
 
 - Russian and English copy beyond the shell and Bugun.
 - The customizable widget edit mode on Bugun, so `dnd-kit` is not installed.
-- Voice input returns 503 on fixtures and falls back to typing, as the brief describes.
 
 ## Accessibility check
 

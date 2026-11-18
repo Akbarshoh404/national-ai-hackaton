@@ -1,28 +1,30 @@
 "use client";
 
-import { ChevronDown, Mic, ScanLine } from "lucide-react";
+import { ChevronDown, Mic, Square } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PriceWaterfall } from "@/components/charts/price-waterfall";
 import { RangeBar } from "@/components/charts/small";
-import { useCopilotScreen } from "@/components/raft/shell";
+import { useCopilotScreen, useShell } from "@/components/raft/shell";
 import { Async, Skeleton, SkeletonLines } from "@/components/raft/states";
 import { Tile, TileHeader } from "@/components/raft/tile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Slider } from "@/components/ui/slider";
-import { useBuyUnit, useParseInput, usePriceVerdict, type PriceParams } from "@/lib/api/hooks";
+import { InputNotRecognized, useBuyUnit, useParseInput, usePriceVerdict, type ParseInput, type PriceParams } from "@/lib/api/hooks";
+import type { Detected } from "@/lib/api/backend/prices";
 import { ApiError } from "@/lib/api/client";
-import { pctSigned, shortSoum, usd, usdSigned } from "@/lib/format";
+import { group, num, pctSigned, shortNum, shortSoum, soum, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const CONDITIONS = [
-  { key: "A", label: "Chiziqsiz" },
-  { key: "B", label: "Mayda izlar" },
-  { key: "C", label: "Shikastlangan" },
+  { key: "new", short: "Yangi", label: "Ishlatilmagan" },
+  { key: "A", short: "A", label: "Chiziqsiz" },
+  { key: "B", short: "B", label: "Mayda izlar" },
+  { key: "C", short: "C", label: "Shikastlangan" },
 ] as const;
-
-const SAMPLE_IMEI = "352918110000004";
+type Condition = (typeof CONDITIONS)[number]["key"];
+const GRADED = new Set(["phone", "laptop"]);
+const CONFIDENCE: Record<string, string> = { high: "yuqori", medium: "o‘rtacha", low: "past" };
 
 function detectKind(value: string) {
   if (/t\.me\//i.test(value)) return "link" as const;
@@ -30,55 +32,109 @@ function detectKind(value: string) {
   return "text" as const;
 }
 
+const errorText = (e: unknown, fallback: string) => (e instanceof InputNotRecognized || e instanceof ApiError ? e.message : fallback);
+
 export function BaholashView() {
   useCopilotScreen("baholash");
   const inputRef = useRef<HTMLInputElement>(null);
-  const [input, setInput] = useState(SAMPLE_IMEI);
-  const [detected, setDetected] = useState({ model: "iPhone 13 Pro · 256 GB", detail: "Sierra Blue · IMEI ro‘yxatdan o‘tgan" });
-  const [params, setParams] = useState<PriceParams>({ query: "iPhone 13 Pro 256", condition: "A", battery: 87, box: true });
+  const recorder = useRef<MediaRecorder | null>(null);
+  const [input, setInput] = useState("");
+  const [detected, setDetected] = useState<Detected | null>(null);
+  const [condition, setCondition] = useState<Condition>("A");
+  const [storage, setStorage] = useState<number | null>(null);
   const [repaired, setRepaired] = useState(false);
+  const [imeiRegistered, setImeiRegistered] = useState(true);
+  const [paid, setPaid] = useState("");
+  const [recording, setRecording] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<"bought" | "declined" | null>(null);
+
+  const graded = detected ? GRADED.has(detected.category) : false;
+  const isPhone = detected?.category === "phone";
+  const params: PriceParams | null = detected
+    ? {
+        category: detected.category,
+        brand: detected.brand,
+        model: detected.model,
+        condition: graded ? condition : detected.condition,
+        attrs: {
+          ...detected.attrs,
+          ...(storage ? { storage_gb: storage } : {}),
+          ...(isPhone ? { repaired, imei_registered: imeiRegistered } : {}),
+        },
+      }
+    : null;
 
   const parse = useParseInput();
   const verdict = usePriceVerdict(params);
   const buy = useBuyUnit();
+  // Appraisers price only; buying into stock is done by the owner or a manager (backend core/permissions.py).
+  const canBuy = useShell().account.roleCode !== "appraiser";
+  const v = verdict.data;
 
-  const update = (patch: Partial<PriceParams>) => {
+  useEffect(() => {
+    if (v) setPaid(String(v.max_uzs));
+  }, [v?.max_uzs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => recorder.current?.stream.getTracks().forEach((t) => t.stop()), []);
+
+  const apply = (d: Detected) => {
     setOutcome(null);
-    setParams((p) => ({ ...p, ...patch }));
+    setDetected(d);
+    const c = d.condition && CONDITIONS.some((x) => x.key === d.condition) ? (d.condition as Condition) : "A";
+    setCondition(c);
+    setStorage(typeof d.attrs.storage_gb === "number" ? d.attrs.storage_gb : d.storage_options.length === 1 ? d.storage_options[0] : null);
+    setRepaired(d.attrs.repaired === true);
+    setImeiRegistered(d.attrs.imei_registered !== false);
+  };
+
+  const run = (value: ParseInput, fallback: string) => {
+    setInputError(null);
+    parse.mutate(value, { onSuccess: apply, onError: (e) => setInputError(errorText(e, fallback)) });
   };
 
   const submit = (value = input) => {
     if (!value.trim()) return;
-    setInputError(null);
-    parse.mutate(
-      { kind: detectKind(value), value },
-      {
-        onSuccess: (r) => {
-          setDetected({ model: r.model, detail: r.detail });
-          update({ query: r.query, ...(r.condition ? { condition: r.condition } : {}), ...(r.battery ? { battery: r.battery } : {}), ...(r.box !== null ? { box: r.box } : {}) });
-        },
-        onError: (e) => setInputError(e instanceof ApiError ? e.message : "Aniqlab bo‘lmadi. Qayta urinib ko‘ring."),
-      },
-    );
+    run({ kind: detectKind(value), value }, "Aniqlab bo‘lmadi. Qayta urinib ko‘ring.");
   };
 
-  const voice = () => {
+  const voice = async () => {
+    if (recording) {
+      recorder.current?.stop();
+      return;
+    }
     setInputError(null);
-    parse.mutate(
-      { kind: "voice", value: "" },
-      {
-        onError: (e) => {
-          setInputError(e instanceof ApiError ? e.message : "Ovozli kiritish ishlamadi. Matn bilan yozing.");
-          setInput("");
-          inputRef.current?.focus();
-        },
-      },
-    );
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setInputError("Brauzer ovoz yozishni qo‘llamaydi. Matn bilan yozing.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => chunks.push(e.data);
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        recorder.current = null;
+        setRecording(false);
+        const audio = new Blob(chunks, { type: (rec.mimeType || "audio/webm").split(";")[0] });
+        run({ kind: "voice", audio }, "Ovozli kiritish ishlamadi. Matn bilan yozing.");
+      };
+      recorder.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      setInputError("Mikrofonga ruxsat berilmadi. Matn bilan yozing.");
+      inputRef.current?.focus();
+    }
   };
 
-  const v = verdict.data;
+  const change = (fn: () => void) => {
+    setOutcome(null);
+    fn();
+  };
+
+  const paidValue = Number(paid.replace(/\s/g, ""));
 
   return (
     <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-[minmax(0,390fr)_minmax(0,434fr)_minmax(0,394fr)]">
@@ -110,26 +166,15 @@ export function BaholashView() {
               }}
               placeholder="iphone 13 pro 256 87% quti bor"
               aria-describedby={inputError ? "price-error" : undefined}
-              className="input mono h-14 pr-[100px] text-[15px]"
+              className="input mono h-14 pr-[60px] text-[15px]"
             />
             <div className="absolute top-1.5 right-1.5 flex gap-1">
-              <button type="button" className="icon-btn" aria-label="Ovoz bilan kiritish" onClick={voice}>
-                <Mic size={18} strokeWidth={1.75} aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="Namuna IMEI’ni skanerlash"
-                onClick={() => {
-                  setInput(SAMPLE_IMEI);
-                  submit(SAMPLE_IMEI);
-                }}
-              >
-                <ScanLine size={18} strokeWidth={1.75} aria-hidden />
+              <button type="button" className={cn("icon-btn", recording && "text-danger")} aria-label={recording ? "Yozishni to‘xtatish" : "Ovoz bilan kiritish"} aria-pressed={recording} onClick={voice}>
+                {recording ? <Square size={16} strokeWidth={1.75} aria-hidden /> : <Mic size={18} strokeWidth={1.75} aria-hidden />}
               </button>
             </div>
           </div>
-          <p className="t-cap mt-1">Enter bosing yoki Telegram havolasini joylang.</p>
+          <p className="t-cap mt-1">{recording ? "Gapiring, tugatgach to‘xtatish tugmasini bosing." : parse.isPending ? "Aniqlanmoqda…" : "Enter bosing yoki Telegram havolasini joylang."}</p>
           {inputError ? (
             <p id="price-error" role="alert" className="mt-1 text-[13px] text-danger">
               {inputError}
@@ -138,66 +183,91 @@ export function BaholashView() {
         </form>
 
         <div className="panel mt-3 p-4" aria-live="polite">
-          <p className="text-[15px] font-semibold">{detected.model}</p>
-          <p className="mt-1 text-[13px] text-text-2">{detected.detail}</p>
+          {detected ? (
+            <>
+              <p className="text-[15px] font-semibold">{detected.label}</p>
+              <p className="mt-1 text-[13px] text-text-2">{detected.detail}</p>
+            </>
+          ) : (
+            <p className="text-[13px] text-text-2">Mahsulot hali kiritilmagan.</p>
+          )}
         </div>
 
-        <fieldset className="mt-5">
-          <legend className="field-label">Tashqi holati</legend>
-          <div className="grid grid-cols-[1fr_1fr_1.25fr] gap-2">
-            {CONDITIONS.map((c) => (
-              <label
-                key={c.key}
-                className={cn(
-                  "cursor-pointer rounded-[16px] border bg-white/60 p-3 transition-colors duration-150 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(14_124_112/0.4)]",
-                  params.condition === c.key ? "border-[1.5px] border-text bg-white" : "border-border hover:border-border-strong",
-                )}
-              >
-                <input type="radio" name="condition" className="sr-only" checked={params.condition === c.key} onChange={() => update({ condition: c.key })} />
-                <span className="block text-[17px] font-semibold">{c.key}</span>
-                <span className="mt-1 block truncate text-[12px] text-text-2" title={c.label}>
-                  {c.label}
+        {detected && detected.storage_options.length > 1 ? (
+          <fieldset className="mt-5">
+            <legend className="field-label">Xotira</legend>
+            <div className="flex flex-wrap gap-2">
+              {detected.storage_options.map((gb) => (
+                <label
+                  key={gb}
+                  className={cn(
+                    "cursor-pointer rounded-[16px] border bg-white/60 px-4 py-2 text-[14px] font-medium has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(14_124_112/0.4)]",
+                    storage === gb ? "border-[1.5px] border-text bg-white" : "border-border hover:border-border-strong",
+                  )}
+                >
+                  <input type="radio" name="storage" className="sr-only" checked={storage === gb} onChange={() => change(() => setStorage(gb))} />
+                  {gb} GB
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
+
+        {!detected || graded ? (
+          <fieldset className="mt-5" disabled={!detected}>
+            <legend className="field-label">Tashqi holati</legend>
+            <div className="grid grid-cols-4 gap-2">
+              {CONDITIONS.map((c) => (
+                <label
+                  key={c.key}
+                  className={cn(
+                    "cursor-pointer rounded-[16px] border bg-white/60 p-3 transition-colors duration-150 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[rgb(14_124_112/0.4)]",
+                    condition === c.key ? "border-[1.5px] border-text bg-white" : "border-border hover:border-border-strong",
+                  )}
+                >
+                  <input type="radio" name="condition" className="sr-only" checked={condition === c.key} onChange={() => change(() => setCondition(c.key))} />
+                  <span className="block text-[17px] font-semibold">{c.short}</span>
+                  <span className="mt-1 block truncate text-[12px] text-text-2" title={c.label}>
+                    {c.label}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
+
+        {isPhone ? (
+          <details className="group panel mt-auto">
+            <summary className="flex min-h-[64px] list-none items-center justify-between gap-3 rounded-[16px] p-4 [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-[14px] font-medium">Qo‘shimcha ma’lumotlar</span>
+                <span className="block text-[13px] text-text-2">
+                  {imeiRegistered ? "IMEI ro‘yxatdan o‘tgan" : "IMEI ro‘yxatdan o‘tmagan"} · {repaired ? "ta’mirlangan" : "ta’mirlanmagan"}
                 </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <div className="mt-5">
-          <div className="flex items-baseline justify-between">
-            <span id="battery-label" className="text-[13px] text-text-2">
-              Batareya salomatligi
-            </span>
-            <span className="mono text-[14px] font-medium">{params.battery}%</span>
-          </div>
-          <Slider aria-label="Batareya salomatligi" min={60} max={100} step={1} value={[params.battery]} onValueChange={([value]) => update({ battery: value })} />
-        </div>
-
-        <details className="group panel mt-auto">
-          <summary className="flex min-h-[64px] list-none items-center justify-between gap-3 rounded-[16px] p-4 [&::-webkit-details-marker]:hidden">
-            <span>
-              <span className="block text-[14px] font-medium">Qo‘shimcha ma’lumotlar</span>
-              <span className="block text-[13px] text-text-2">
-                {params.box ? "Quti bor" : "Quti yo‘q"} · {repaired ? "ta’mirlangan" : "ta’mirlanmagan"}
               </span>
-            </span>
-            <ChevronDown size={18} strokeWidth={1.75} aria-hidden className="shrink-0 transition-transform duration-200 group-open:rotate-180" />
-          </summary>
-          <div className="flex flex-col gap-1 px-4 pb-3 text-[13px]">
-            <label className="flex min-h-11 items-center gap-3">
-              <Checkbox checked={params.box} onCheckedChange={(c) => update({ box: c === true })} aria-label="Quti va hujjatlar bor" />
-              Quti va hujjatlar bor
-            </label>
-            <label className="flex min-h-11 items-center gap-3">
-              <Checkbox checked={repaired} onCheckedChange={(c) => setRepaired(c === true)} aria-label="Ta’mirlangan" />
-              Ta’mirlangan
-            </label>
-          </div>
-        </details>
+              <ChevronDown size={18} strokeWidth={1.75} aria-hidden className="shrink-0 transition-transform duration-200 group-open:rotate-180" />
+            </summary>
+            <div className="flex flex-col gap-1 px-4 pb-3 text-[13px]">
+              <label className="flex min-h-11 items-center gap-3">
+                <Checkbox checked={imeiRegistered} onCheckedChange={(c) => change(() => setImeiRegistered(c === true))} aria-label="IMEI ro‘yxatdan o‘tgan" />
+                IMEI ro‘yxatdan o‘tgan
+              </label>
+              <label className="flex min-h-11 items-center gap-3">
+                <Checkbox checked={repaired} onCheckedChange={(c) => change(() => setRepaired(c === true))} aria-label="Ta’mirlangan" />
+                Ta’mirlangan (almashtirilgan qism bor)
+              </label>
+            </div>
+          </details>
+        ) : null}
       </Tile>
 
       <Tile className="md:col-span-2">
-        {!v ? (
+        {!params ? (
+          <div className="flex min-h-[200px] flex-col justify-center">
+            <h2 className="text-[13px] text-text-2">Ko‘pi bilan shuncha to‘lang</h2>
+            <p className="mt-2 text-[15px] text-text-2">IMEI, model nomi, ovoz yoki Telegram havolasini kiriting — narx bozordagi e’lonlardan hisoblanadi.</p>
+          </div>
+        ) : !v ? (
           verdict.isError ? (
             <Async query={verdict} skeleton={null}>
               {() => null}
@@ -213,20 +283,22 @@ export function BaholashView() {
           <>
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="text-[13px] text-text-2">Ko‘pi bilan shuncha to‘lang</h2>
-              <p className="text-[12px] font-medium text-text-2">{v.listings} ta e’lon asosida</p>
+              <p className="text-[12px] font-medium text-text-2" title={v.basis}>
+                {v.listings} ta e’lon asosida · ishonch {CONFIDENCE[v.confidence]}
+              </p>
             </div>
-            <p className="mt-2 flex flex-wrap items-baseline gap-x-3">
-              <span className="serif text-[64px]">{usd(v.max_price)}</span>
-              <span className="text-[15px] text-text-2">≈ {shortSoum(v.soum)}</span>
+            <p className={cn("mt-2 flex flex-wrap items-baseline gap-x-3", verdict.isFetching && "opacity-60")}>
+              <span className="serif text-[64px]">{usd(v.max_usd)}</span>
+              <span className="text-[15px] text-text-2">≈ {soum(v.max_uzs)}</span>
             </p>
             <dl className="panel mt-4 grid grid-cols-2 sm:grid-cols-4">
               {[
-                ["Avval taklif qiling", usd(v.first_offer)],
-                ["Qayta sotish narxi", usd(v.resale)],
-                ["Sizning foydangiz", usdSigned(v.profit)],
-                ["Sotilish vaqti", `~${v.days} kun`],
+                ["Qayta sotish narxi", shortSoum(v.resale)],
+                ["Sotish xarajati", shortSoum(v.handling)],
+                ["Sizning foydangiz", `+${shortSoum(v.profit)}`],
+                ["Sotilish vaqti", v.days === null ? "yo‘q" : `~${Math.round(v.days)} kun`],
               ].map(([label, value], i) => (
-                <div key={label} className={cn("min-w-0 p-4", i > 0 && "sm:border-l sm:border-[rgb(15_23_22/0.06)]")}>
+                <div key={label} className={cn("min-w-0 p-4", i > 0 && "sm:border-l sm:border-[rgb(15_23_22/0.06)]")} title={label === "Sotilish vaqti" ? (v.days_basis ?? undefined) : undefined}>
                   <dt className="truncate text-[13px] text-text-2" title={label}>
                     {label}
                   </dt>
@@ -236,22 +308,22 @@ export function BaholashView() {
             </dl>
             <div className="mt-4">
               <RangeBar
-                min={Math.min(v.max_price, v.range_low) * 0.92}
-                max={v.range_high * 1.04}
+                min={Math.min(v.max_uzs, v.range_low) * 0.92}
+                max={Math.max(v.range_high, v.median) * 1.04}
                 bandLow={v.range_low}
                 bandHigh={v.range_high}
                 markers={[
-                  { value: v.max_price, label: `Sizning chegarangiz ${usd(v.max_price)}`, tone: "accent" },
-                  { value: v.median, label: `Bozor medianasi ${usd(v.median)}`, tone: "text" },
+                  { value: v.max_uzs, label: `Sizning chegarangiz ${shortNum(v.max_uzs)}`, tone: "accent" },
+                  { value: v.median, label: `Bozor medianasi ${shortNum(v.median)}`, tone: "text" },
                 ]}
-                ends={`E’lonlar ${usd(v.range_low)} – ${usd(v.range_high)}`}
-                ariaLabel={`Chegarangiz ${usd(v.max_price)}, bozor medianasi ${usd(v.median)}, e’lonlar ${usd(v.range_low)} dan ${usd(v.range_high)} gacha`}
+                ends={`E’lonlar (25–75%) ${shortNum(v.range_low)} – ${shortSoum(v.range_high)}`}
+                ariaLabel={`Chegarangiz ${soum(v.max_uzs)}, bozor medianasi ${soum(v.median)}, e’lonlar ${soum(v.range_low)} dan ${soum(v.range_high)} gacha`}
               />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               {outcome === "bought" ? (
                 <p role="status" className="flex min-h-12 items-center gap-2 text-[14px]">
-                  {v.model} omborga qo‘shildi.
+                  {detected?.label} omborga qo‘shildi.
                   <Link className="link" href="/narxlar?tab=ombor">
                     Omborni ochish
                   </Link>
@@ -260,15 +332,37 @@ export function BaholashView() {
                 <p role="status" className="flex min-h-12 items-center text-[14px] text-text-2">
                   Mijoz rad etdi, bitim yozilmadi.
                 </p>
-              ) : (
+              ) : detected && !canBuy ? (
+                <p className="flex min-h-12 items-center text-[14px] text-text-2">Sotib olishni ega yoki menejer omborga yozadi.</p>
+              ) : detected ? (
                 <>
+                  <label className="flex items-center gap-2 text-[13px] text-text-2">
+                    To‘langan narx
+                    <input
+                      inputMode="numeric"
+                      value={paid ? group(Number(paid.replace(/\s/g, "")) || 0) : ""}
+                      onChange={(e) => setPaid(e.target.value.replace(/\D/g, ""))}
+                      className={cn("input mono h-12 w-[150px] text-right text-[14px]", paidValue > v.max_uzs && "border-warning")}
+                      aria-label="To‘langan narx, so‘m"
+                    />
+                    so‘m
+                  </label>
                   <Button
                     variant="primary"
                     size="lg"
-                    disabled={buy.isPending}
+                    disabled={buy.isPending || !(paidValue > 0)}
                     onClick={() =>
                       buy.mutate(
-                        { model: v.model, detail: v.detail, price: v.max_price, resale: v.resale, median: v.median, days: v.days, condition: params.condition, battery: params.battery },
+                        {
+                          category: detected.category,
+                          brand: detected.brand,
+                          model: detected.model,
+                          condition: params.condition,
+                          attrs: params.attrs,
+                          unit_cost: paidValue,
+                          list_price_uzs: v.resale,
+                          identifier: detected.identifier,
+                        },
                         { onSuccess: () => setOutcome("bought") },
                       )
                     }
@@ -278,53 +372,67 @@ export function BaholashView() {
                   <Button variant="plain" onClick={() => setOutcome("declined")}>
                     Mijoz rad etdi
                   </Button>
+                  {paidValue > v.max_uzs ? <p className="text-[13px] text-warning">Chegaradan {num(paidValue - v.max_uzs)} so‘m qimmat.</p> : null}
                   {buy.isError ? (
                     <p role="alert" className="text-[13px] text-danger">
-                      Saqlanmadi. Qayta urinib ko‘ring.
+                      {errorText(buy.error, "Saqlanmadi. Qayta urinib ko‘ring.")}
                     </p>
                   ) : null}
                 </>
-              )}
+              ) : null}
             </div>
           </>
         )}
       </Tile>
 
       <Tile>
-        <TileHeader title="Narx nimadan iborat" sub="Bozor medianasidan maksimal xarid narxigacha. Har bir qadam ustiga olib boring." />
-        <div className="mt-4">{v ? <PriceWaterfall steps={v.steps} /> : <Skeleton className="h-[200px]" />}</div>
+        <TileHeader title="Narx nimadan iborat" sub="Bozor narxidan maksimal xarid narxigacha. Har bir qadam ustiga olib boring." />
+        <div className="mt-4">
+          {v ? (
+            <PriceWaterfall steps={v.steps} format={shortSoum} tickFormat={shortNum} />
+          ) : params && !verdict.isError ? (
+            <Skeleton className="h-[200px]" />
+          ) : (
+            <p className="text-[13px] text-text-2">Narx hisoblangach ko‘rinadi.</p>
+          )}
+        </div>
       </Tile>
 
       <Tile className="flex flex-col">
-        <TileHeader title="Eng yaqin e’lonlar" right="30 kun" />
+        <TileHeader title="So‘nggi o‘xshash e’lonlar" />
         <div className="mt-2 flex-1">
           {v ? (
-            <ul>
-              {v.comparables.map((c, i) => (
-                <li key={c.url} className={cn("flex items-center justify-between gap-3 py-3", i > 0 && "border-t border-[rgb(15_23_22/0.06)]")}>
-                  <div className="min-w-0">
-                    <a href={c.url} target="_blank" rel="noreferrer" className="text-[15px] font-semibold tabular-nums hover:underline">
-                      {usd(c.price)}
-                    </a>
-                    <p className="truncate text-[13px] text-text-2" title={c.meta}>
-                      {c.meta}
+            v.comparables.length ? (
+              <ul>
+                {v.comparables.map((c, i) => (
+                  <li key={c.key} className={cn("flex items-center justify-between gap-3 py-3", i > 0 && "border-t border-[rgb(15_23_22/0.06)]")}>
+                    <div className="min-w-0">
+                      {c.url ? (
+                        <a href={c.url} target="_blank" rel="noreferrer" className="text-[15px] font-semibold tabular-nums hover:underline">
+                          {soum(c.price)}
+                        </a>
+                      ) : (
+                        <span className="text-[15px] font-semibold tabular-nums">{soum(c.price)}</span>
+                      )}
+                      <p className="truncate text-[13px] text-text-2" title={c.meta}>
+                        {c.meta}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-[13px] text-text-2">
+                      {c.condition} <span className="mono font-medium text-text">{pctSigned(c.diff_pct, 0)}</span>
                     </p>
-                  </div>
-                  <p className="shrink-0 text-[13px] text-text-2">
-                    {c.rating} <span className="mono font-medium text-text">{pctSigned(c.diff_pct, 0)}</span>
-                  </p>
-                </li>
-              ))}
-            </ul>
-          ) : (
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[13px] text-text-2">E’lonlar yo‘q.</p>
+            )
+          ) : params && !verdict.isError ? (
             <SkeletonLines rows={3} height={48} />
+          ) : (
+            <p className="text-[13px] text-text-2">Narx hisoblangach ko‘rinadi.</p>
           )}
         </div>
-        {v ? (
-          <Link href="/birja?tab=radar" className="link text-[13px]">
-            Barcha {v.listings} ta e’lonni ko‘rish
-          </Link>
-        ) : null}
       </Tile>
     </div>
   );

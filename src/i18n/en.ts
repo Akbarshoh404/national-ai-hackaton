@@ -61,7 +61,7 @@ export const en: Dictionary = {
     spend: "Spending",
     lastYear: "last year",
     net: "Net",
-    budget: "Budget · November",
+    budget: "Budget",
     credit: "Loan readiness",
     offers: "{n} bank offers",
     activity: "Recent activity",

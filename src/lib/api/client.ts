@@ -2,13 +2,10 @@
 
 import type { z } from "zod";
 import { getAccount } from "@/lib/auth";
-import { mockRequest } from "./fixtures/server";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 export const API_PREFIX = "/api/v1";
-const FIXTURE_MODE = process.env.NEXT_PUBLIC_USE_FIXTURES ?? "auto";
-const TIMEOUT_MS = 15_000;
-const HEALTH_TTL_MS = 20_000;
+const TIMEOUT_MS = 30_000;
 
 export class ApiError extends Error {
   constructor(
@@ -22,61 +19,26 @@ export class ApiError extends Error {
   }
 }
 
-export type DataSource = "unknown" | "live" | "fixtures";
-let source: DataSource = "unknown";
-const sourceListeners = new Set<() => void>();
-export const endpointSources = new Map<string, "live" | "fixtures">();
+type Query = Record<string, string | number | boolean | undefined | null>;
 
-function mark(next: "live" | "fixtures", method: string, path: string) {
-  endpointSources.set(`${method} ${path.split("?")[0]}`, next);
-  if (next === "fixtures" && source !== "fixtures") {
-    source = "fixtures";
-    sourceListeners.forEach((fn) => fn());
-  } else if (next === "live" && source === "unknown") {
-    source = "live";
-    sourceListeners.forEach((fn) => fn());
-  }
-}
-
-export const dataSourceStore = {
-  subscribe(fn: () => void) {
-    sourceListeners.add(fn);
-    return () => sourceListeners.delete(fn);
-  },
-  get: () => source,
-  getServer: (): DataSource => "unknown",
-};
-
-let health: { up: boolean; at: number } | null = null;
-
-/** Asks a same-origin route, so a stopped backend never logs a browser network error. */
-async function backendUp() {
-  if (health && Date.now() - health.at < HEALTH_TTL_MS) return health.up;
-  try {
-    const res = await fetch("/api/health", { cache: "no-store" });
-    const body = (await res.json()) as { up: boolean };
-    health = { up: body.up, at: Date.now() };
-  } catch {
-    health = { up: false, at: Date.now() };
-  }
-  return health.up;
-}
-
-export interface RequestOptions<S extends z.ZodTypeAny> {
+export interface RequestOptions<S extends z.ZodTypeAny, R = z.output<S>> {
+  /** Schema of the backend response (what the API actually returns). */
   schema: S;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
-  query?: Record<string, string | number | boolean | undefined | null>;
+  query?: Query;
+  /** Turns the validated backend response into what the screen renders. */
+  map?: (data: z.output<S>) => R;
 }
 
-function withQuery(path: string, query?: RequestOptions<z.ZodTypeAny>["query"]) {
+function withQuery(path: string, query?: Query) {
   if (!query) return path;
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
   }
   const text = params.toString();
-  return text ? `${path}?${text}` : path;
+  return text ? `${path}${path.includes("?") ? "&" : "?"}${text}` : path;
 }
 
 function language() {
@@ -96,47 +58,68 @@ async function toApiError(res: Response) {
   }
 }
 
-export async function api<S extends z.ZodTypeAny>(path: string, options: RequestOptions<S>): Promise<z.output<S>> {
-  const { schema, method = "GET", body, query } = options;
-  const url = withQuery(path, query);
-  const auto = FIXTURE_MODE === "auto";
-  const tryLive = FIXTURE_MODE === "false" || (auto && (await backendUp()));
-
-  if (tryLive) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(`${API_URL}${API_PREFIX}${url}`, {
-        method,
-        signal: controller.signal,
-        headers: {
-          Accept: "application/json",
-          "Accept-Language": language(),
-          "X-API-Key": getAccount()?.key ?? "",
-          ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-      if (res.ok) {
-        const parsed = schema.safeParse(res.status === 204 ? { ok: true } : await res.json());
-        if (parsed.success) {
-          mark("live", method, path);
-          return parsed.data;
-        }
-        if (!auto) throw new ApiError(502, "bad_shape", "Javob kutilgan ko‘rinishda emas", parsed.error.issues);
-      } else if (!(auto && (res.status >= 500 || res.status === 404 || res.status === 405))) {
-        throw await toApiError(res);
-      }
-    } catch (error) {
-      if (error instanceof ApiError || !auto) {
-        if (error instanceof ApiError) throw error;
-        throw new ApiError(0, "network", "Server bilan aloqa yo‘q");
-      }
-    } finally {
-      clearTimeout(timer);
-    }
+async function send(path: string, init: { method: string; body?: BodyInit; headers?: Record<string, string> }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_URL}${API_PREFIX}${path}`, {
+      method: init.method,
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "Accept-Language": language(),
+        "X-API-Key": getAccount()?.key ?? "",
+        ...init.headers,
+      },
+      body: init.body,
+    });
+    if (!res.ok) throw await toApiError(res);
+    return res;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(0, "network", "Server bilan aloqa yo‘q");
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  mark("fixtures", method, path);
-  return schema.parse(await mockRequest(method, path, { body, query }));
+/** Calls the backend. There is no fallback: a failed call or an unexpected shape is an error the screen shows. */
+export async function api<S extends z.ZodTypeAny, R = z.output<S>>(path: string, options: RequestOptions<S, R>): Promise<R> {
+  const { schema, method = "GET", body, query, map } = options;
+  const res = await send(withQuery(path, query), {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const json = res.status === 204 ? {} : await res.json();
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    console.error(`Unexpected response shape from ${method} ${path}`, parsed.error.issues);
+    throw new ApiError(502, "bad_shape", "Javob kutilgan ko‘rinishda emas", parsed.error.issues);
+  }
+  return map ? map(parsed.data) : (parsed.data as R);
+}
+
+/** Multipart upload (files). */
+export async function upload<S extends z.ZodTypeAny, R = z.output<S>>(path: string, form: FormData, options: Omit<RequestOptions<S, R>, "body" | "method">): Promise<R> {
+  const { schema, query, map } = options;
+  const res = await send(withQuery(path, query), { method: "POST", body: form });
+  const parsed = schema.safeParse(await res.json());
+  if (!parsed.success) {
+    console.error(`Unexpected response shape from POST ${path}`, parsed.error.issues);
+    throw new ApiError(502, "bad_shape", "Javob kutilgan ko‘rinishda emas", parsed.error.issues);
+  }
+  return map ? map(parsed.data) : (parsed.data as R);
+}
+
+/** Downloads a file the backend generates (exports, documents). */
+export async function download(path: string, filename: string, query?: Query) {
+  const res = await send(withQuery(path, query), { method: "GET" });
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -2,20 +2,52 @@
 
 import Link from "next/link";
 import { useRef } from "react";
-import { CashFlowMirror } from "@/components/charts/cash-flow-mirror";
 import { Legend } from "@/components/charts/base";
-import { SalesForecast } from "@/components/charts/sales-forecast";
 import { SalesStrip } from "@/components/charts/sales-strip";
 import { Sparkline, TickBar, TickGauge } from "@/components/charts/small";
 import { Page, useCopilotScreen, useShell } from "@/components/raft/shell";
-import { Async, ErrorState, Skeleton, SkeletonLines } from "@/components/raft/states";
+import { Async, EmptyState, ErrorState, Skeleton, SkeletonLines } from "@/components/raft/states";
 import { Swatch, Tile, TileHeader } from "@/components/raft/tile";
-import { fill, useT } from "@/i18n";
-import { useDashboard, useDecide, useDecisions, useRadar } from "@/lib/api/hooks";
-import type { Dashboard } from "@/lib/api/schemas";
+import { fill, useLang, useT, type Lang } from "@/i18n";
+import { useActivity, useDashboard, useDecide, useDecisions, useRadar } from "@/lib/api/hooks";
+import type { TodayDashboard as Dashboard } from "@/lib/api/backend/today";
 import { ApiError } from "@/lib/api/client";
-import { DEMO_TODAY, dateShort, mln, pct, pctSigned, usd, usdSigned, weekdayDate } from "@/lib/format";
+import { dateShort, mln, pct, pctSigned, shortSoum, usd, usdSigned, weekdayDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+/** Labels for tiles whose wording follows the real data (no sales plan, forecast or last-year series exist in the books). */
+const LOCAL: Record<Lang, { dailyAvg: string; vsAvg: string; salesSub: string; grade: string; noIndex: string; noRfq: string; noActivity: string; cashSub: string }> = {
+  uz: {
+    dailyAvg: "Kunlik savdo · punktir, 30 kunlik o‘rtacha",
+    vsAvg: "o‘rtachaga",
+    salesSub: "Kunlik tushum · so‘nggi 90 kun, punktir — 30 kunlik o‘rtacha",
+    grade: "Baho",
+    noIndex: "Narx indeksi uchun yetarli e’lon yo‘q.",
+    noRfq: "Takliflari bor ochiq so‘rovingiz yo‘q.",
+    noActivity: "Hali faoliyat yo‘q.",
+    cashSub: "O‘rtacha sof natija {v} oyiga",
+  },
+  ru: {
+    dailyAvg: "Продажи по дням · пунктир, среднее за 30 дней",
+    vsAvg: "к среднему",
+    salesSub: "Выручка по дням · последние 90 дней, пунктир — среднее за 30 дней",
+    grade: "Оценка",
+    noIndex: "Недостаточно объявлений для индекса цен.",
+    noRfq: "Нет открытых запросов с предложениями.",
+    noActivity: "Пока нет действий.",
+    cashSub: "Средний чистый результат {v} в месяц",
+  },
+  en: {
+    dailyAvg: "Daily sales · dashed, 30-day average",
+    vsAvg: "vs average",
+    salesSub: "Daily revenue · last 90 days, dashed — 30-day average",
+    grade: "Grade",
+    noIndex: "Not enough listings for a price index.",
+    noRfq: "No open requests with quotes.",
+    noActivity: "No activity yet.",
+    cashSub: "Average net result {v} a month",
+  },
+};
 
 function DecisionTile() {
   const { bugun: t, shell } = useT();
@@ -60,7 +92,14 @@ function DecisionTile() {
         <>
           <div key={current.id} className="fade-in">
             <h3 className="serif mt-4 text-[30px]">{current.title}</h3>
-            <p className="mt-4 text-[14px] leading-5">{current.reasons}</p>
+            <p className="mt-4 text-[14px] leading-5">{current.message}</p>
+            {current.reasons.length ? (
+              <ul className="mt-2 flex flex-col gap-1 text-[13px] leading-[18px] opacity-90">
+                {current.reasons.map((r) => (
+                  <li key={r}>· {r}</li>
+                ))}
+              </ul>
+            ) : null}
             <dl className="mt-4 flex flex-col gap-2 rounded-[12px] bg-white/[0.06] p-4 text-[13px]">
               {current.evidence.map((row) => (
                 <div key={row.label} className="flex items-baseline justify-between gap-3">
@@ -76,7 +115,7 @@ function DecisionTile() {
               <ul className="mt-1">
                 {items.slice(1, 4).map((d, i) => (
                   <li key={d.id} className={cn("flex items-baseline justify-between gap-3 py-2 text-[13px]", i > 0 && "border-t border-white/20")}>
-                    <span className="min-w-0">{d.short}</span>
+                    <span className="min-w-0">{d.title}</span>
                     <span className="mono shrink-0 text-[12px]">{d.amount}</span>
                   </li>
                 ))}
@@ -142,15 +181,18 @@ function SourcingTile() {
           )}
         </Async>
       </div>
-      <Link href="/birja?tab=radar" className="link text-[13px]">
-        {fill(t.allFinds, { n: query.data?.total ?? 23 })}
-      </Link>
+      {query.data ? (
+        <Link href="/birja?tab=radar" className="link text-[13px]">
+          {fill(t.allFinds, { n: query.data.total })}
+        </Link>
+      ) : null}
     </Tile>
   );
 }
 
 function GreetingTile({ data }: { data: Dashboard }) {
   const t = useT().bugun;
+  const local = LOCAL[useLang()];
   const { account } = useShell();
   return (
     <Tile className="flex flex-col justify-between gap-4 md:col-span-2">
@@ -167,14 +209,15 @@ function GreetingTile({ data }: { data: Dashboard }) {
           <p className="text-[12px] text-text-2">{t.todaySales}</p>
           <p className="serif mt-1 text-[44px]">{usd(data.sales_today)}</p>
           <p className="mt-1 text-[12px]">
-            <span className="mono font-medium text-success">
-              {usdSigned(data.sales_delta)} · {pct(data.sales_delta_pct)}
+            <span className={cn("mono font-medium", data.sales_delta < 0 ? "text-danger" : "text-success")}>
+              {usdSigned(data.sales_delta)}
+              {data.sales_delta_pct !== null ? ` · ${pctSigned(data.sales_delta_pct)}` : ""}
             </span>{" "}
             <span className="text-text-2">{t.vsYesterday}</span>
           </p>
         </div>
       </div>
-      <SalesStrip days={data.strip} plan={data.plan} caption={t.dailySales} todayLabel={t.today} />
+      <SalesStrip days={data.strip30} plan={data.avg_daily} caption={local.dailyAvg} vsLabel={local.vsAvg} todayLabel={t.today} />
     </Tile>
   );
 }
@@ -208,14 +251,16 @@ function StockTile({ data }: { data: Dashboard["stock_health"] }) {
 
 function LimitsTile({ data }: { data: Dashboard }) {
   const t = useT().bugun;
+  const local = LOCAL[useLang()];
+  const budgetTitle = `${t.budget.split(" · ")[0]} · ${data.budget.month}`;
   return (
     <Tile className="flex flex-col">
-      <p className="text-[13px] text-text-2">{t.budget}</p>
+      <p className="text-[13px] text-text-2">{budgetTitle}</p>
       <p className="serif mt-1 text-[28px]">
-        {data.budget.spent} / {mln(data.budget.limit)}
+        {mln(data.budget.spent)} / {mln(data.budget.limit)}
       </p>
       <div className="mt-2">
-        <TickBar value={data.budget.spent} max={data.budget.limit} label={`${t.budget}: ${data.budget.spent} / ${data.budget.limit} mln`} />
+        <TickBar value={Math.min(data.budget.spent, data.budget.limit)} max={data.budget.limit || 1} label={`${budgetTitle}: ${data.budget.spent} / ${data.budget.limit} mln`} />
       </div>
       {data.budget.warning ? <p className="mt-1 text-[12px] font-medium text-warning">{data.budget.warning}</p> : null}
       <hr className="my-4 border-[rgb(15_23_22/0.06)]" />
@@ -224,15 +269,69 @@ function LimitsTile({ data }: { data: Dashboard }) {
       <div className="mt-2">
         <TickBar value={data.credit.score} max={100} label={`${t.credit}: ${data.credit.score} / 100`} />
       </div>
-      <p className="mt-1 text-[12px] text-text-2">{fill(t.offers, { n: data.credit.offers })}</p>
+      <p className="mt-1 text-[12px] text-text-2">
+        {local.grade}: {data.credit.grade}
+      </p>
+    </Tile>
+  );
+}
+
+/** Six months of income (up) and spend (down), millions of so‘m, straight from the books. */
+function CashBars({ months, labels }: { months: Dashboard["cash"]; labels: { income: string; spend: string; net: string } }) {
+  const max = Math.max(1, ...months.flatMap((m) => [m.income, m.spend]));
+  const half = 72;
+  return (
+    <ul className="grid gap-2" style={{ gridTemplateColumns: `repeat(${months.length}, minmax(0, 1fr))` }} aria-label={`${labels.income} / ${labels.spend}, mln so‘m`}>
+      {months.map((m) => (
+        <li key={m.month} className="flex flex-col items-center" title={`${m.month}: ${labels.income} ${mln(m.income)}, ${labels.spend} ${mln(m.spend)}, ${labels.net} ${mln(m.net)}`}>
+          <div className="flex w-full items-end justify-center" style={{ height: half }}>
+            <div className="w-3/5 rounded-t-[4px]" style={{ height: (m.income / max) * half, background: "var(--chart-s1)", opacity: m.partial ? 0.6 : 1 }} />
+          </div>
+          <span className="t-mono-cap py-1">{m.month.slice(5)}</span>
+          <div className="flex w-full items-start justify-center" style={{ height: half }}>
+            <div className="w-3/5 rounded-b-[4px]" style={{ height: (m.spend / max) * half, background: "var(--chart-s3)", opacity: m.partial ? 0.6 : 1 }} />
+          </div>
+          <span className={cn("mono mt-1 text-[11px]", m.net < 0 ? "text-danger" : "text-text-2")}>{mln(m.net)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActivityTile() {
+  const t = useT().bugun;
+  const local = LOCAL[useLang()];
+  const query = useActivity();
+  return (
+    <Tile className="md:col-span-2">
+      <TileHeader title={t.activity} />
+      <div className="mt-3">
+        <Async query={query} skeleton={<SkeletonLines rows={5} height={28} />} isEmpty={(d) => d.items.length === 0} empty={<EmptyState text={local.noActivity} />}>
+          {(d) => (
+            <ul>
+              {d.items.slice(0, 6).map((row) => (
+                <li key={row.id} className="flex items-baseline gap-4 py-2 text-[13px]">
+                  <span className="t-mono-cap w-11 shrink-0">{row.time}</span>
+                  <span className="truncate-1 flex-1" title={row.text}>
+                    {row.text}
+                  </span>
+                  <span className="t-mono-cap shrink-0 text-right">{row.actor}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Async>
+      </div>
     </Tile>
   );
 }
 
 function BugunContent({ data }: { data: Dashboard }) {
   const t = useT().bugun;
-  const maxQuote = 280;
-  const baseQuote = 200;
+  const local = LOCAL[useLang()];
+  const rfqPrices = data.rfq?.quotes.map((q) => q.price) ?? [];
+  const minQuote = Math.min(...rfqPrices);
+  const maxQuote = Math.max(...rfqPrices);
   return (
     <>
       <GreetingTile data={data} />
@@ -240,82 +339,91 @@ function BugunContent({ data }: { data: Dashboard }) {
       <DecisionTile />
 
       <Tile className="min-w-0 md:col-span-2 xl:col-span-3">
-        <TileHeader title={t.sales} sub={t.salesSub} />
+        <TileHeader title={t.sales} sub={local.salesSub} />
         <div className="mt-3">
-          <SalesForecast days={data.sales.days} todayIndex={data.sales.today_index} initialStart={data.sales.window_start} />
+          <SalesStrip days={data.strip90} plan={data.avg_daily} caption={local.dailyAvg} vsLabel={local.vsAvg} todayLabel={t.today} height={320} />
         </div>
       </Tile>
 
       <StockTile data={data.stock_health} />
       <Tile className="flex flex-col md:col-span-2">
-        <TileHeader title={t.cash} sub={fill(t.cashSub, { v: `+${mln(data.avg_net)} so‘m` })} />
+        <TileHeader title={t.cash} sub={fill(local.cashSub, { v: `${data.avg_net > 0 ? "+" : ""}${mln(data.avg_net)} so‘m` })} />
         <div className="mt-2">
           <Legend
             items={[
               { label: t.income, color: "var(--chart-s1)" },
               { label: t.spend, color: "var(--chart-s3)" },
-              { label: t.lastYear, color: "var(--text-muted)", faded: true },
             ]}
           />
         </div>
         <div className="mt-auto pt-2">
-          <CashFlowMirror months={data.cash_flow} labels={{ income: t.income, spend: t.spend, net: t.net, lastYear: t.lastYear }} />
+          <CashBars months={data.cash} labels={{ income: t.income, spend: t.spend, net: t.net }} />
         </div>
       </Tile>
       <LimitsTile data={data} />
 
-      <Tile className="md:col-span-2">
-        <TileHeader title={t.activity} right={t.today_lower} />
-        <ul className="mt-3">
-          {data.activity.map((row, i) => (
-            <li key={`${row.text}-${i}`} className="flex items-baseline gap-4 py-2 text-[13px]">
-              <span className="t-mono-cap w-11 shrink-0">{row.time}</span>
-              <span className="truncate-1 flex-1" title={row.text}>
-                {row.text}
-              </span>
-              <span className="t-mono-cap shrink-0 text-right">{row.value}</span>
-            </li>
-          ))}
-        </ul>
+      <ActivityTile />
+
+      <Tile className="flex flex-col">
+        {data.index ? (
+          <>
+            <TileHeader title={t.index} sub={data.index.subtitle} />
+            <p className="mt-2 flex items-baseline gap-2">
+              <span className="serif text-[32px]">{usd(data.index.price)}</span>
+              {data.index.change_pct !== null ? (
+                <span className={cn("mono text-[12px]", data.index.change_pct < 0 ? "text-danger" : "text-success")}>
+                  {pctSigned(data.index.change_pct)} <span className="font-sans text-text-2">{t.in7}</span>
+                </span>
+              ) : null}
+            </p>
+            <div className="mt-2">
+              <Sparkline series={data.index.series} label={`${data.index.subtitle}: ${t.band}`} height={64} />
+            </div>
+            <div className="mt-1 flex justify-between">
+              <span className="t-mono-cap">{dateShort(data.index.from)}</span>
+              <span className="t-mono-cap">{t.today}</span>
+            </div>
+            <p className="t-cap mt-auto">{t.band}</p>
+          </>
+        ) : (
+          <>
+            <TileHeader title={t.index} />
+            <EmptyState text={local.noIndex} />
+          </>
+        )}
       </Tile>
 
       <Tile className="flex flex-col">
-        <TileHeader title={t.index} sub={data.index.subtitle} />
-        <p className="mt-2 flex items-baseline gap-2">
-          <span className="serif text-[32px]">{usd(data.index.price)}</span>
-          <span className={cn("mono text-[12px]", data.index.change_pct < 0 ? "text-danger" : "text-success")}>
-            {pctSigned(data.index.change_pct)} <span className="font-sans text-text-2">{t.in7}</span>
-          </span>
-        </p>
-        <div className="mt-2">
-          <Sparkline series={data.index.series} label={`${data.index.subtitle}: ${t.band}`} height={64} />
-        </div>
-        <div className="mt-1 flex justify-between">
-          <span className="t-mono-cap">{dateShort(data.index.from)}</span>
-          <span className="t-mono-cap">{t.today}</span>
-        </div>
-        <p className="t-cap mt-auto">{t.band}</p>
-      </Tile>
-
-      <Tile className="flex flex-col">
-        <TileHeader title={`Birja · RFQ #${data.rfq.id}`} sub={data.rfq.subtitle} />
-        <p className="serif mt-2 text-[28px]">{fill(t.quotes, { n: data.rfq.quotes.length })}</p>
-        <ul className="mt-2 flex flex-col gap-2">
-          {data.rfq.quotes.map((q) => (
-            <li key={q.name}>
-              <div className="flex items-baseline justify-between text-[13px]">
-                <span className={cn(q.best && "font-medium")}>{q.name}</span>
-                <span className="mono text-[12px] font-medium">{usd(q.price)}</span>
-              </div>
-              <div className="mt-1 h-1.5 rounded-full bg-[rgb(15_23_22/0.06)]">
-                <div className="h-full rounded-full" style={{ width: `${((q.price - baseQuote) / (maxQuote - baseQuote)) * 100}%`, background: q.best ? "var(--chart-s1)" : "var(--border-strong)" }} />
-              </div>
-            </li>
-          ))}
-        </ul>
-        <Link href="/birja" className="link mt-auto pt-2 text-[13px]">
-          {t.compare}
-        </Link>
+        {data.rfq ? (
+          <>
+            <TileHeader title={`Birja · RFQ #${data.rfq.id}`} sub={data.rfq.subtitle} />
+            <p className="serif mt-2 text-[28px]">{fill(t.quotes, { n: data.rfq.quotes.length })}</p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {data.rfq.quotes.map((q) => (
+                <li key={q.name}>
+                  <div className="flex items-baseline justify-between text-[13px]">
+                    <span className={cn(q.best && "font-medium")}>{q.name}</span>
+                    <span className="mono text-[12px] font-medium">{shortSoum(q.price)}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-[rgb(15_23_22/0.06)]">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${maxQuote > minQuote ? 30 + ((q.price - minQuote) / (maxQuote - minQuote)) * 70 : 100}%`, background: q.best ? "var(--chart-s1)" : "var(--border-strong)" }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <Link href="/birja" className="link mt-auto pt-2 text-[13px]">
+              {t.compare}
+            </Link>
+          </>
+        ) : (
+          <>
+            <TileHeader title="Birja · RFQ" />
+            <EmptyState text={local.noRfq} />
+          </>
+        )}
       </Tile>
     </>
   );
@@ -328,7 +436,7 @@ export function BugunScreen() {
   const query = useDashboard();
   useCopilotScreen("bugun");
   return (
-    <Page title={nav.bugun} subtitle={weekdayDate(DEMO_TODAY)}>
+    <Page title={nav.bugun} subtitle={query.data ? weekdayDate(query.data.today) : undefined}>
       {query.isPending ? (
         <div className={gridClass} role="status" aria-label="Yuklanmoqda">
           <Skeleton className="h-[330px] rounded-[36px] md:col-span-2" />

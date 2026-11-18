@@ -16,11 +16,11 @@ export interface Account {
   about: string;
 }
 
-/** Keys follow the master prompt; confirm them against the backend seed once it runs. */
+/** Keys are `demo-<company slug>` / `demo-<user slug>` from the backend seed (app.api.routers.auth.demo_key). */
 export const ACCOUNTS: Account[] = [
   {
     id: "chilonzor-owner",
-    key: "demo-chilonzor",
+    key: "demo-chilonzor-phone",
     name: "Chilonzor Phone Market",
     short: "Chilonzor Phone",
     initials: "CP",
@@ -65,9 +65,9 @@ export const ACCOUNTS: Account[] = [
   {
     id: "demo-bank",
     key: "demo-demo-bank",
-    name: "Demo Bank",
-    short: "Demo Bank",
-    initials: "DB",
+    name: "Demo Lizing Bank",
+    short: "Demo Lizing Bank",
+    initials: "DL",
     role: "Bank",
     roleCode: "lender",
     kind: "bank",
@@ -76,7 +76,7 @@ export const ACCOUNTS: Account[] = [
   {
     id: "bozor-admin",
     key: "demo-bozor-admin",
-    name: "Malika bozori",
+    name: "Malika Bozori Ma’muriyati",
     short: "Malika bozori",
     initials: "MB",
     role: "Bozor ma’muriyati",
@@ -130,5 +130,6 @@ export function useAccount(): Account | null | undefined {
 export function homeFor(account: Account) {
   if (account.kind === "bank" || account.kind === "bazaar") return "/partner";
   if (account.kind === "supplier") return "/birja";
+  if (account.roleCode === "appraiser") return "/narxlar?tab=baholash";
   return "/bugun";
 }

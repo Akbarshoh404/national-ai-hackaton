@@ -41,7 +41,7 @@ export function CommandPalette({ open, onOpenChange, account }: { open: boolean;
       ...navFor(account).map((item) => ({ group: t.shell.pages, title: t.nav[item.label], meta: "", href: item.href })),
       ...(isBusiness ? SUBPAGES.map((p) => ({ ...p, group: t.shell.pages })) : []),
       { group: t.shell.pages, title: t.nav.sozlama, meta: "", href: "/sozlama" },
-      { group: t.shell.pages, title: t.nav.model, meta: "Raft-Extractor", href: "/model" },
+      { group: t.shell.pages, title: t.nav.model, meta: "", href: "/model" },
     ].filter((p) => !text || `${p.title} ${p.meta}`.toLowerCase().includes(text));
     return [...pages, ...(text.length > 1 ? (search.data?.items ?? []) : [])];
   }, [account, isBusiness, q, search.data, t]);

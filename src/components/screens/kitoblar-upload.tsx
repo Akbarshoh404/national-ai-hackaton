@@ -4,64 +4,65 @@ import { Upload } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { useUploadCommit, useUploadPreview } from "@/lib/api/hooks";
-import type { UploadPreview } from "@/lib/api/schemas";
+import { FIELD_LABELS, type UploadPreviewData } from "@/lib/api/backend/books";
+import { ApiError } from "@/lib/api/client";
+import { downloadUploadTemplate, useInvoiceUpload, useUploadCommit, useUploadPreview } from "@/lib/api/hooks";
+import { dateShort, soum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const SAMPLE_ROWS = [
-  ["Sana", "Mahsulot nomi", "Kontragent", "Summa"],
-  ["12.11.2026", "iPhone 13 128GB", "TechOpt Wholesale", "31 000 000"],
-  ["08.11.2026", "Samsung A55", "MobiGross", "13 360 000"],
-  ["05.11.2026", "Reklama", "Meta", "4 200 000"],
-];
-
-function parseDelimited(text: string) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  const first = lines[0] ?? "";
-  const delimiter = [";", "\t", ","].sort((a, b) => first.split(b).length - first.split(a).length)[0];
-  return lines.map((line) => line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, "")));
-}
+const SKIP = "skip";
+const errorText = (e: unknown) => (e instanceof ApiError ? e.message : "Fayl o‘qilmadi. Qayta urinib ko‘ring.");
 
 export function UploadPanel({ onClose }: { onClose: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const preview = useUploadPreview();
   const commit = useUploadCommit();
+  const invoice = useInvoiceUpload();
   const [over, setOver] = useState(false);
-  const [data, setData] = useState<UploadPreview | null>(null);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [sampled, setSampled] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [data, setData] = useState<UploadPreviewData | null>(null);
+  const [mapping, setMapping] = useState<Record<string, string | null>>({});
   const [done, setDone] = useState<string | null>(null);
 
-  const read = async (file: File) => {
-    setDone(null);
-    const isText = /\.(csv|tsv|txt)$/i.test(file.name);
-    const rows = isText ? parseDelimited(await file.text()) : SAMPLE_ROWS;
-    setSampled(!isText);
+  const runPreview = (f: File, m?: Record<string, string | null>) =>
     preview.mutate(
-      { filename: file.name, rows },
+      { file: f, mapping: m },
       {
         onSuccess: (result) => {
           setData(result);
-          setMapping(Object.fromEntries(result.columns.map((c) => [c.source, c.target])));
+          setMapping(m ?? Object.fromEntries(result.columns.map((c) => [c, result.mapping[c]?.field ?? null])));
         },
       },
     );
+
+  const read = (f: File) => {
+    setDone(null);
+    setFile(f);
+    runPreview(f);
+  };
+
+  const remap = (column: string, value: string) => {
+    const next = { ...mapping, [column]: value === SKIP ? null : value };
+    setMapping(next);
+    if (file) runPreview(file, next);
   };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) void read(file);
+    const f = e.dataTransfer.files[0];
+    if (f) read(f);
   };
+
+  const options = data ? [{ value: SKIP, label: "O‘tkazib yuborish" }, ...data.fields.map((f) => ({ value: f, label: FIELD_LABELS[f] ?? f }))] : [];
 
   return (
     <div>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="serif text-[28px]">Fayldan yuklash</h2>
-          <p className="mt-1 text-[14px] text-text-2">Excel, CSV yoki 1C eksporti. Import qilishdan oldin ustunlarni tekshirasiz.</p>
+          <p className="mt-1 text-[14px] text-text-2">Excel yoki CSV eksporti. Import qilishdan oldin ustunlarni tekshirasiz.</p>
         </div>
         <Button variant="plain" onClick={onClose}>
           Tekshiruvga qaytish
@@ -87,20 +88,30 @@ export function UploadPanel({ onClose }: { onClose: () => void }) {
           >
             <Upload size={20} strokeWidth={1.75} aria-hidden />
             <p className="text-[14px] font-medium">Faylni shu yerga tashlang</p>
-            <p className="text-[13px] text-text-2">.xlsx, .csv, .xml (1C)</p>
-            <Button onClick={() => fileRef.current?.click()} disabled={preview.isPending}>
-              Faylni tanlash
-            </Button>
+            <p className="text-[13px] text-text-2">.xlsx, .xls, .csv · 10 MB gacha</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => fileRef.current?.click()} disabled={preview.isPending}>
+                {preview.isPending ? "O‘qilmoqda" : "Faylni tanlash"}
+              </Button>
+              <Button variant="plain" onClick={() => void downloadUploadTemplate()}>
+                Namuna fayl (CSV)
+              </Button>
+            </div>
+            {preview.isError ? (
+              <p role="alert" className="text-[13px] text-danger">
+                {errorText(preview.error)}
+              </p>
+            ) : null}
             <input
               ref={fileRef}
               type="file"
               aria-label="Faylni tanlash"
-              accept=".csv,.tsv,.txt,.xlsx,.xls,.xml"
+              accept=".csv,.tsv,.txt,.xlsx,.xls"
               className="sr-only"
               tabIndex={-1}
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void read(file);
+                const f = e.target.files?.[0];
+                if (f) read(f);
                 e.target.value = "";
               }}
             />
@@ -109,8 +120,15 @@ export function UploadPanel({ onClose }: { onClose: () => void }) {
             <div>
               <p className="text-[14px] font-medium">Faktura rasmi</p>
               <p className="text-[13px] text-text-2">Qog‘oz fakturani suratga olib yuklang.</p>
+              {invoice.isError ? (
+                <p role="alert" className="mt-1 text-[13px] text-danger">
+                  {errorText(invoice.error)}
+                </p>
+              ) : null}
             </div>
-            <Button onClick={() => photoRef.current?.click()}>Rasm yuklash</Button>
+            <Button disabled={invoice.isPending} onClick={() => photoRef.current?.click()}>
+              {invoice.isPending ? "O‘qilmoqda" : "Rasm yuklash"}
+            </Button>
             <input
               ref={photoRef}
               type="file"
@@ -119,8 +137,11 @@ export function UploadPanel({ onClose }: { onClose: () => void }) {
               className="sr-only"
               tabIndex={-1}
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) commit.mutate({ filename: file.name, rows: 1, mapping: {} }, { onSuccess: () => setDone(`${file.name} qabul qilindi va kitoblarga qo‘shildi.`) });
+                const f = e.target.files?.[0];
+                if (f)
+                  invoice.mutate(f, {
+                    onSuccess: (r) => setDone(r.created_ids.length ? `${f.name}: ${r.created_ids.length} ta yozuv kitoblarga qo‘shildi.` : `${f.name}: rasmdan yozuv topilmadi.`),
+                  });
                 e.target.value = "";
               }}
             />
@@ -129,56 +150,99 @@ export function UploadPanel({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="mt-4">
           <p className="text-[14px]">
-            <span className="mono font-medium">{data.filename}</span> <span className="text-text-2">· {data.rows} ta yozuv</span>
+            <span className="mono font-medium">{file?.name}</span> <span className="text-text-2">· {data.total_rows} ta qator</span>
           </p>
-          {sampled ? <p className="mt-1 text-[13px] text-warning">Demo rejimida bu format o‘qilmaydi, ustunlar namuna sifatida ko‘rsatilgan.</p> : null}
           <div className="panel mt-3 overflow-x-auto p-4">
             <table className="data-table">
               <thead>
                 <tr>
-                  {data.columns.map((c) => (
-                    <th key={c.source} className="min-w-[140px] align-top">
-                      <label htmlFor={`map-${c.source}`} className="mb-1 block">
-                        {c.source}
-                      </label>
-                      <Select id={`map-${c.source}`} className="font-normal" value={mapping[c.source] ?? "skip"} onValueChange={(value) => setMapping((m) => ({ ...m, [c.source]: value }))} options={data.targets} />
-                    </th>
-                  ))}
+                  <th>Fayldagi ustun</th>
+                  <th className="min-w-[180px]">Maydon</th>
+                  <th className="r">Ishonch</th>
                 </tr>
               </thead>
               <tbody>
-                {data.sample.map((row, i) => (
-                  <tr key={i}>
-                    {row.map((cell, k) => (
-                      <td key={k} className="mono">
-                        {cell}
-                      </td>
-                    ))}
+                {data.columns.map((c) => (
+                  <tr key={c}>
+                    <td className="mono">
+                      <label htmlFor={`map-${c}`}>{c}</label>
+                    </td>
+                    <td>
+                      <Select id={`map-${c}`} className="font-normal" value={mapping[c] ?? SKIP} onValueChange={(value) => remap(c, value)} options={options} />
+                    </td>
+                    <td className="r mono text-text-2">{data.mapping[c]?.field ? `${Math.round(data.mapping[c].confidence * 100)}%` : "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {data.rows.length ? (
+            <div className="panel mt-3 overflow-x-auto p-4">
+              <p className="mb-2 text-[13px] text-text-2">Birinchi {data.rows.length} ta qator, import qilinganda shunday yoziladi</p>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Sana</th>
+                    <th>Turi</th>
+                    <th>Toifa</th>
+                    <th>Kontragent</th>
+                    <th className="r">Jami</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="mono">{dateShort(r.date)}</td>
+                      <td>{r.type === "income" ? "Kirim" : "Chiqim"}</td>
+                      <td>{[r.category, r.model].filter(Boolean).join(" · ")}</td>
+                      <td className="text-text-2">{r.counterparty ?? "—"}</td>
+                      <td className="r mono">{soum(r.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {data.errors.length ? (
+            <ul role="alert" className="mt-3 flex flex-col gap-1 text-[13px] text-danger">
+              {data.errors.slice(0, 5).map((e) => (
+                <li key={`${e.row}-${e.error}`}>{e.row ? `${e.row}-qator: ${e.error}` : e.error}</li>
+              ))}
+            </ul>
+          ) : null}
+          {commit.isError ? (
+            <p role="alert" className="mt-3 text-[13px] text-danger">
+              {errorText(commit.error)}
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Button
               variant="primary"
               size="lg"
-              disabled={commit.isPending}
+              disabled={commit.isPending || preview.isPending || !data.rows.length || !file}
               onClick={() =>
+                file &&
                 commit.mutate(
-                  { filename: data.filename, rows: data.rows, mapping },
+                  { file, mapping },
                   {
-                    onSuccess: () => {
-                      setDone(`${data.rows} ta yozuv import qilindi.`);
+                    onSuccess: (r) => {
+                      setDone(`${r.created} ta yozuv import qilindi${r.errors.length ? `, ${r.errors.length} ta qator xato` : ""}.`);
                       setData(null);
+                      setFile(null);
                     },
                   },
                 )
               }
             >
-              {data.rows} ta yozuvni import qilish
+              {data.total_rows} ta qatorni import qilish
             </Button>
-            <Button variant="plain" onClick={() => setData(null)}>
+            <Button
+              variant="plain"
+              onClick={() => {
+                setData(null);
+                setFile(null);
+              }}
+            >
               Boshqa fayl
             </Button>
           </div>

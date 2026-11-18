@@ -1,13 +1,13 @@
 "use client";
 
 import type { PriceStep } from "@/lib/api/schemas";
-import { usd, usdSigned } from "@/lib/format";
+import { usd } from "@/lib/format";
 import { ChartTip, TickText, useCursor, useWidth } from "./base";
 
 const H = 168;
 const TOP = 24;
 const BOTTOM = 8;
-const LEFT = 40;
+const LEFT = 52;
 
 const COLOR: Record<PriceStep["kind"], string> = {
   start: "var(--text-2)",
@@ -17,13 +17,23 @@ const COLOR: Record<PriceStep["kind"], string> = {
   end: "var(--accent)",
 };
 
-export function PriceWaterfall({ steps }: { steps: PriceStep[] }) {
+/** Round axis step (1, 2 or 5 × 10^n) giving about four gridlines over `span`. */
+function niceStep(span: number) {
+  const raw = Math.max(span, 1) / 4;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const unit = raw / pow;
+  return (unit <= 1 ? 1 : unit <= 2 ? 2 : unit <= 5 ? 5 : 10) * pow;
+}
+
+export function PriceWaterfall({ steps, format = usd, tickFormat }: { steps: PriceStep[]; format?: (v: number) => string; tickFormat?: (v: number) => string }) {
+  const signed = (v: number) => `${v > 0 ? "+" : ""}${format(v)}`;
+  const tick = tickFormat ?? format;
   const [ref, width] = useWidth();
   const { active, setActive, chartProps } = useCursor(steps.length);
   const start = steps[0].delta;
   const end = steps[steps.length - 1].delta;
-  const axisStep = start > 2000 ? 1000 : start > 600 ? 100 : 50;
-  const axisMin = Math.floor((end * 0.86) / axisStep) * axisStep;
+  const axisStep = niceStep(start - end * 0.86);
+  const axisMin = Math.max(0, Math.floor((end * 0.86) / axisStep) * axisStep);
   const axisMax = Math.ceil((start * 1.03) / axisStep) * axisStep;
   const y = (v: number) => TOP + (1 - (v - axisMin) / (axisMax - axisMin)) * (H - TOP - BOTTOM);
   const plotW = Math.max(1, width - LEFT);
@@ -51,12 +61,12 @@ export function PriceWaterfall({ steps }: { steps: PriceStep[] }) {
     <div ref={ref} className="relative">
       {width > 0 ? (
         <>
-          <svg width={width} height={H + 8} role="img" aria-label={`Narx tarkibi: ${steps.map((s) => `${s.label} ${s.kind === "start" || s.kind === "end" ? usd(s.delta) : usdSigned(s.delta)}`).join(", ")}`} {...chartProps}>
+          <svg width={width} height={H + 8} role="img" aria-label={`Narx tarkibi: ${steps.map((s) => `${s.label} ${s.kind === "start" || s.kind === "end" ? format(s.delta) : signed(s.delta)}`).join(", ")}`} {...chartProps}>
             {ticks.map((t) => (
               <g key={t}>
                 <line x1={LEFT} x2={width} y1={y(t)} y2={y(t)} stroke="var(--chart-grid)" />
                 <TickText x={LEFT - 8} y={y(t) + 4} anchor="end">
-                  {usd(t)}
+                  {tick(t)}
                 </TickText>
               </g>
             ))}
@@ -82,7 +92,7 @@ export function PriceWaterfall({ steps }: { steps: PriceStep[] }) {
                     <rect x={barX(i)} y={top} width={barW} height={height} rx={r} fill={COLOR[s.kind]} />
                   )}
                   <text x={barX(i) + barW / 2} y={top - 6} textAnchor="middle" fontSize={13} fontWeight={600} fill="var(--text)">
-                    {anchored ? usd(s.delta) : usdSigned(s.delta)}
+                    {anchored ? format(s.delta) : signed(s.delta)}
                   </text>
                 </g>
               );

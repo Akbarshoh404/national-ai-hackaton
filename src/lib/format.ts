@@ -5,9 +5,6 @@ const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avg
 const MONTHS_SHORT = ["yan", "fev", "mar", "apr", "may", "iyn", "iyl", "avg", "sen", "okt", "noy", "dek"];
 const WEEKDAYS = ["Yakshanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
 
-/** The demo seed is anchored to this day, so dates agree with the seeded numbers. */
-export const DEMO_TODAY = "2026-11-17";
-
 export function group(value: number) {
   const rounded = Math.round(Math.abs(value));
   return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);

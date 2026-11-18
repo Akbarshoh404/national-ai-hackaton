@@ -6,12 +6,12 @@ import { useCopilotScreen } from "@/components/raft/shell";
 import { Async, EmptyState, Skeleton, SkeletonLines } from "@/components/raft/states";
 import { KpiStrip, Tile, TileHeader } from "@/components/raft/tile";
 import { Button } from "@/components/ui/button";
-import { useDemand, useLots, useNextPost, useRadar } from "@/lib/api/hooks";
-import type { Demand, Radar, RadarFind } from "@/lib/api/schemas";
-import { num, pct, pctSigned, usd } from "@/lib/format";
+import type { DemandView as Demand, FeedPost, RadarCategory } from "@/lib/api/backend/exchange";
+import { useDemand, useLots, useRadar, useRadarFeed } from "@/lib/api/hooks";
+import { pct, pctSigned, shortSoum, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const FILTERS: { key: "all" | RadarFind["category"]; label: string }[] = [
+const FILTERS: { key: "all" | RadarCategory; label: string }[] = [
   { key: "all", label: "Hammasi" },
   { key: "phone", label: "Telefon" },
   { key: "laptop", label: "Noutbuk" },
@@ -19,82 +19,88 @@ const FILTERS: { key: "all" | RadarFind["category"]; label: string }[] = [
   { key: "realty", label: "Ko‘chmas mulk" },
 ];
 
-function LiveFeed({ radar }: { radar: Radar }) {
-  const next = useNextPost();
-  const [reading, setReading] = useState(false);
-  const post = radar.feed;
+/** "12 daq oldin", "3 soat oldin", "2 kun oldin". */
+function ago(iso: string) {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (min < 60) return `${min} daq oldin`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} soat oldin`;
+  return `${Math.round(h / 24)} kun oldin`;
+}
 
-  const readNext = async () => {
-    setReading(true);
-    try {
-      await Promise.all([next.mutateAsync(), new Promise((r) => setTimeout(r, 800))]);
-    } finally {
-      setReading(false);
-    }
-  };
-
+function PostCard({ post }: { post: FeedPost }) {
   return (
-    <Tile className="flex flex-col">
-      <TileHeader title="Jonli lenta" right="hozir" />
+    <div key={post.id} className="fade-in">
       <div className="panel mt-3 p-4">
         <p className="t-mono-cap">
-          {post.channel} · {post.time}
+          {post.channel} · {ago(post.posted_at)}
         </p>
-        <p className="mt-1 text-[14px]">{post.text}</p>
+        <p className="mt-1 text-[14px] font-medium">
+          {post.url ? (
+            <a href={post.url} target="_blank" rel="noreferrer" className="hover:underline">
+              {post.title}
+            </a>
+          ) : (
+            post.title
+          )}
+        </p>
       </div>
-      {reading ? (
-        <div className="mt-4" role="status" aria-label="E’lon o‘qilmoqda">
-          <p className="t-mono-cap mb-3">Raft-Extractor o‘qimoqda</p>
-          <SkeletonLines rows={5} height={20} />
-        </div>
-      ) : (
-        <div key={post.id} className="fade-in">
-          <p className="t-mono-cap mt-4">
-            <Link href="/model" className="hover:underline">
-              Raft-Extractor
-            </Link>{" "}
-            o‘qidi · {num(post.latency_s, 1)} s
-          </p>
-          <dl className="mt-2 flex flex-col gap-2">
-            {post.fields.map((f) => (
-              <div key={f.label} className="kv text-[13px]">
-                <dt>{f.label}</dt>
-                <dd>{f.value}</dd>
+      <p className="t-mono-cap mt-4">
+        <Link href="/model" className="hover:underline">
+          {post.extractor ?? "Model"}
+        </Link>{" "}
+        o‘qidi
+      </p>
+      <dl className="mt-2 flex flex-col gap-2">
+        {post.fields.map((f) => (
+          <div key={f.label} className="kv text-[13px]">
+            <dt>{f.label}</dt>
+            <dd>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-4 text-[13px] text-text-2">{post.market !== null ? `Bozor narxi ${usd(post.market)}` : "Bozor narxi uchun o‘xshash e’lonlar yetarli emas"}</p>
+      <p className="mt-1 flex items-baseline gap-2">
+        <span className="serif text-[32px]">{usd(post.price)}</span>
+        {post.diff_pct !== null ? (
+          <span className={cn("mono text-[12px] font-medium", post.diff_pct >= 0 ? "text-success" : "text-text-2")}>
+            {post.diff_pct >= 0 ? `bozordan ${pct(post.diff_pct, 0)} arzon` : `bozordan ${pct(-post.diff_pct, 0)} qimmat`}
+          </span>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+/** The newest Telegram posts read by the live listener (polled every 30 s). */
+function LiveFeed() {
+  const feed = useRadarFeed();
+  return (
+    <Tile className="flex flex-col">
+      <TileHeader title="Jonli lenta" right={feed.isFetching ? "yangilanmoqda" : "har 30 s"} />
+      <Async query={feed} skeleton={<SkeletonLines rows={5} height={20} />} isEmpty={(posts) => posts.length === 0} empty={<EmptyState text="Telegram kanallaridan hali e’lon o‘qilmagan." />}>
+        {(posts) => (
+          <>
+            <PostCard post={posts[0]} />
+            {posts.length > 1 ? (
+              <div className="mt-auto pt-5">
+                <h3 className="text-[13px] text-text-2">Oldingi</h3>
+                <ul className="mt-2 flex flex-col gap-2 text-[13px]">
+                  {posts.slice(1).map((p) => (
+                    <li key={p.id} className="flex items-baseline gap-2">
+                      <span className="t-mono-cap shrink-0">{ago(p.posted_at)}</span>
+                      <span className="truncate-1 flex-1" title={p.title}>
+                        {p.title}
+                      </span>
+                      <span className="t-mono-cap shrink-0">{usd(p.price)}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ))}
-          </dl>
-          <p className="mt-4 text-[13px] text-text-2">{post.median_label}</p>
-          <p className="mt-1 flex items-baseline gap-2">
-            <span className="serif text-[32px]">{usd(post.price)}</span>
-            <span className="mono text-[12px] font-medium text-success">bozordan {pct(post.diff_pct, 0)}</span>
-          </p>
-        </div>
-      )}
-      <div className="mt-3">
-        {radar.has_more_posts ? (
-          <Button onClick={() => void readNext()} disabled={reading}>
-            Keyingi e’lonni o‘qish
-          </Button>
-        ) : (
-          <p className="text-[13px] text-text-2">Yangi e’lon kutilmoqda.</p>
+            ) : null}
+          </>
         )}
-      </div>
-      {radar.previous.length ? (
-        <div className="mt-auto pt-5">
-          <h3 className="text-[13px] text-text-2">Oldingi</h3>
-          <ul className="mt-2 flex flex-col gap-2 text-[13px]">
-            {radar.previous.slice(0, 3).map((p) => (
-              <li key={p.time} className="flex items-baseline gap-2">
-                <span className="t-mono-cap">{p.time}</span>
-                <span className="truncate-1 flex-1" title={p.title}>
-                  {p.title}
-                </span>
-                <span className="t-mono-cap shrink-0">{p.value}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      </Async>
     </Tile>
   );
 }
@@ -114,10 +120,10 @@ export function RadarView() {
           <>
             <KpiStrip
               items={[
-                { label: "Bugun topildi", value: String(radar.total), note: "e’lon bozordan 8% va undan arzon" },
+                { label: `${radar.days} kunda topildi`, value: String(radar.total), note: `e’lon bozordan ${radar.min_discount}% va undan arzon` },
                 { label: "O‘rtacha chegirma", value: pct(radar.avg_discount, 0), note: "bozor medianasiga nisbatan" },
-                { label: "Kutilgan foyda", value: `~${usd(radar.expected_profit)}`, note: `${radar.total} ta topilma bo‘yicha` },
-                { label: "Kanallar", value: String(radar.channels), note: "5 kategoriya, jonli rejim" },
+                { label: "Kutilgan foyda", value: `~${usd(radar.expected_profit)}`, note: `${radar.items.length} ta topilma bo‘yicha` },
+                { label: "Kanallar", value: String(radar.channels), note: `${radar.categories} kategoriya` },
               ]}
             />
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,938fr)_minmax(0,300fr)]">
@@ -134,7 +140,16 @@ export function RadarView() {
                 </div>
                 <div className="relative mt-3 overflow-x-auto">
                   {rows.length === 0 ? (
-                    <EmptyState text="Bu toifada bugun topilma yo‘q." action={<Button variant="plain" className="-ml-2" onClick={() => setFilter("all")}>Hammasini ko‘rsatish</Button>} />
+                    <EmptyState
+                      text={filter === "all" ? "Hozircha bozordan arzon e’lon topilmadi." : "Bu toifada topilma yo‘q."}
+                      action={
+                        filter === "all" ? undefined : (
+                          <Button variant="plain" className="-ml-2" onClick={() => setFilter("all")}>
+                            Hammasini ko‘rsatish
+                          </Button>
+                        )
+                      }
+                    />
                   ) : (
                     <table className="data-table min-w-[760px]">
                       <thead>
@@ -159,21 +174,23 @@ export function RadarView() {
                                 {f.title}
                                 {f.is_new ? <span className="ml-2 text-[12px] font-medium text-accent-text">yangi</span> : null}
                               </div>
-                              <div className="t-mono-cap">{f.meta}</div>
+                              {f.meta ? <div className="t-mono-cap">{f.meta}</div> : null}
                             </td>
                             <td className="r mono font-medium">{usd(f.price)}</td>
                             <td className="r mono text-text-2">{usd(f.market)}</td>
                             <td className="r mono text-success">{pct(f.diff_pct, 0)}</td>
                             <td className="r mono font-medium">~{usd(f.profit)}</td>
-                            <td className="r mono text-text-2">{f.days} kun</td>
+                            <td className="r mono text-text-2">{f.days !== null ? `${Math.round(f.days)} kun` : "—"}</td>
                             <td>
                               <div>{f.channel}</div>
-                              <div className="t-mono-cap">{f.age}</div>
+                              <div className="t-mono-cap">{ago(f.posted_at)}</div>
                             </td>
                             <td className="r">
-                              <a href={f.url} target="_blank" rel="noreferrer" className="link" aria-label={`${f.title} e’lonini ochish`}>
-                                Ochish
-                              </a>
+                              {f.url ? (
+                                <a href={f.url} target="_blank" rel="noreferrer" className="link" aria-label={`${f.title} e’lonini ochish`}>
+                                  Ochish
+                                </a>
+                              ) : null}
                             </td>
                           </tr>
                         ))}
@@ -186,9 +203,11 @@ export function RadarView() {
                     {showAll ? "Kamroq ko‘rsatish" : `Yana ${rows.length - 8} tasini ko‘rsatish`}
                   </Button>
                 ) : null}
-                <p className="mt-2 text-[12px] text-text-2">Bozor narxi: 30 kunlik taqqoslanadigan e’lonlar medianasi. Har bir narx manba e’longa bog‘langan.</p>
+                <p className="mt-2 text-[12px] text-text-2">
+                  Bozor narxi: taqqoslanadigan e’lonlar medianasi. Foyda: bozor narxi − 3% xarajat − xarid narxi. Sotilish: do‘koningiz savdo tarixidan. Har bir narx manba e’longa bog‘langan.
+                </p>
               </Tile>
-              <LiveFeed radar={radar} />
+              <LiveFeed />
             </div>
           </>
         );
@@ -200,23 +219,27 @@ export function RadarView() {
 export function LotsView() {
   useCopilotScreen("lotlar");
   const query = useLots();
-  const [kind, setKind] = useState("Hammasi");
-  const kinds = ["Hammasi", "Ulgurji", "Ortiqcha qoldiq"];
-  const rows = useMemo(() => (query.data?.items ?? []).filter((l) => kind === "Hammasi" || l.kind === kind), [query.data, kind]);
+  const [kind, setKind] = useState("all");
+  const kinds = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const l of query.data?.items ?? []) seen.set(l.kind, l.kind_label);
+    return [{ key: "all", label: "Hammasi" }, ...[...seen].map(([key, label]) => ({ key, label }))];
+  }, [query.data]);
+  const rows = useMemo(() => (query.data?.items ?? []).filter((l) => kind === "all" || l.kind === kind), [query.data, kind]);
   return (
     <Tile>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <TileHeader title="Ulgurji lotlar" sub="Do‘konlar va yetkazib beruvchilarning ulgurji va ortiqcha tovarlari" />
         <div className="seg" role="group" aria-label="Lot turi">
           {kinds.map((k) => (
-            <button key={k} type="button" className="seg-item" data-active={kind === k} aria-pressed={kind === k} onClick={() => setKind(k)}>
-              {k}
+            <button key={k.key} type="button" className="seg-item" data-active={kind === k.key} aria-pressed={kind === k.key} onClick={() => setKind(k.key)}>
+              {k.label}
             </button>
           ))}
         </div>
       </div>
       <div className="mt-3 overflow-x-auto">
-        <Async query={query} skeleton={<SkeletonLines rows={6} />}>
+        <Async query={query} skeleton={<SkeletonLines rows={6} />} isEmpty={(d) => d.items.length === 0} empty={<EmptyState text="Birjada hozircha faol lot yo‘q." />}>
           {() => (
             <table className="data-table min-w-[760px]">
               <thead>
@@ -235,14 +258,14 @@ export function LotsView() {
                   <tr key={l.id}>
                     <td>
                       <div className="font-medium">{l.title}</div>
-                      <div className="t-cap">{l.kind}</div>
+                      <div className="t-cap">{[l.kind_label, l.note].filter(Boolean).join(" · ")}</div>
                     </td>
                     <td className="text-text-2">{l.seller}</td>
-                    <td className="text-text-2">{l.location}</td>
+                    <td className="text-text-2">{l.location ?? "—"}</td>
                     <td className="r mono">{l.qty} dona</td>
-                    <td className="r mono font-medium">{usd(l.unit_price)}</td>
-                    <td className="r mono text-text-2">{usd(l.market)}</td>
-                    <td className={cn("r mono", l.diff_pct < 0 ? "text-success" : "text-danger")}>{pctSigned(l.diff_pct)}</td>
+                    <td className="r mono font-medium">{shortSoum(l.unit_price)}</td>
+                    <td className="r mono text-text-2">{l.market !== null ? shortSoum(l.market) : "—"}</td>
+                    <td className={cn("r mono", l.diff_pct === null ? "text-text-2" : l.diff_pct < 0 ? "text-success" : "text-danger")}>{l.diff_pct !== null ? pctSigned(l.diff_pct) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -255,7 +278,7 @@ export function LotsView() {
 }
 
 export function DemandBars({ data }: { data: Demand }) {
-  const max = Math.max(...data.districts.map((d) => d.count));
+  const max = Math.max(1, ...data.districts.map((d) => d.count));
   return (
     <ul className="flex flex-col gap-2">
       {data.districts.map((d) => (
@@ -282,13 +305,11 @@ export function DemandView() {
       {(data) => (
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
           <Tile className="xl:col-span-2">
-            <TileHeader title="Talab: tumanlar bo‘yicha" sub="Birjadagi so‘rovlar soni va eng ko‘p so‘ralgan modellar" right="oxirgi 30 kun" />
-            <div className="mt-4">
-              <DemandBars data={data} />
-            </div>
+            <TileHeader title="Talab: tumanlar bo‘yicha" sub="Birjadagi so‘rovlar soni va eng ko‘p so‘ralgan modellar" right={`oxirgi ${data.days} kun`} />
+            <div className="mt-4">{data.districts.length ? <DemandBars data={data} /> : <EmptyState text="So‘nggi kunlarda so‘rov bo‘lmagan." />}</div>
           </Tile>
           <Tile>
-            <TileHeader title="Eng ko‘p so‘ralgan" right="30 kun" />
+            <TileHeader title="Eng ko‘p so‘ralgan" right="so‘rov · dona" />
             <ul className="mt-3">
               {data.models.map((m) => (
                 <li key={m.name} className="flex items-baseline gap-3 py-2 text-[13px]">
@@ -296,10 +317,26 @@ export function DemandView() {
                     {m.name}
                   </span>
                   <span className="mono font-medium">{m.requests}</span>
-                  <span className={cn("mono w-12 text-right text-[12px]", m.change_pct >= 0 ? "text-success" : "text-danger")}>{pctSigned(m.change_pct, 0)}</span>
+                  <span className="mono w-14 text-right text-[12px] text-text-2">{m.units} dona</span>
                 </li>
               ))}
             </ul>
+            {data.listed.length ? (
+              <>
+                <h3 className="mt-4 text-[13px] text-text-2">Telegramda eng ko‘p e’lon qilingan</h3>
+                <ul className="mt-2">
+                  {data.listed.slice(0, 5).map((m) => (
+                    <li key={m.name} className="flex items-baseline gap-3 py-1.5 text-[13px]">
+                      <span className="truncate-1 flex-1" title={m.name}>
+                        {m.name}
+                      </span>
+                      <span className="mono font-medium">{m.listings}</span>
+                      <span className="mono w-20 text-right text-[12px] text-text-2">{shortSoum(m.avg_price)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
           </Tile>
         </div>
       )}

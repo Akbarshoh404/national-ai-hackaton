@@ -13,12 +13,12 @@ npm run dev
 
 Open http://localhost:3000 and choose a demo account.
 
-The app expects the FastAPI backend at `http://localhost:8000`. When it is unreachable, every screen runs on the built-in demo data and the top bar shows "Demo ma’lumotlari". Settings live in `.env.local` (see `.env.example`):
+Every screen reads from the Raft FastAPI backend; there is no built-in demo data. Start the backend first
+(`start-raft.cmd` in the Raft repo). Settings live in `.env.local` (see `.env.example`):
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend address |
-| `NEXT_PUBLIC_USE_FIXTURES` | `auto` | `auto` tries the API first, `true` is demo data only, `false` is API only |
 
 Once the backend is running, generate its types:
 
@@ -30,24 +30,26 @@ npm run gen:api
 
 | Account | Key | Opens |
 |---|---|---|
-| Chilonzor Phone Market, owner | `demo-chilonzor` | `/bugun` |
+| Chilonzor Phone Market, owner | `demo-chilonzor-phone` | `/bugun` |
 | Chilonzor Phone Market, manager | `demo-chilonzor-manager` | `/bugun` |
 | Chilonzor Phone Market, appraiser | `demo-chilonzor-appraiser` | `/bugun` |
 | TechOpt Wholesale, supplier | `demo-techopt` | `/birja` |
-| Demo Bank | `demo-demo-bank` | `/partner` |
+| Demo Lizing Bank | `demo-demo-bank` | `/partner` |
 | Malika bozori, bazaar administration | `demo-bozor-admin` | `/partner` |
 
-Switch accounts from the avatar at the bottom of the sidebar. To rehearse again, use "Demo ma’lumotlarini tiklash" on the login page or in Sozlama → Til.
+Switch accounts from the avatar at the bottom of the sidebar.
 
 ## Demo click path
 
-1. **Birja → Bozordan arzon.** Press "Keyingi e’lonni o‘qish". The post is read and appears at the top of the finds.
-2. **Narxlar → Ombor.** 80 units, 14 overpriced, 6 aging. Press "Qimmat 14 tasini tanlash", then "14 tasini tavsiya narxga o‘zgartirish". The undo bar stays for 5 seconds.
-3. **Kitoblar.** Press "Didox’dan sinxronlash", then "31 000 000 deb tuzatish". The invoice decision leaves Bugun.
-4. **Bugun.** The budget tile shows "Limit 26-noyabrda tugaydi".
-5. **Birja.** Switch to TechOpt and send the quote. Switch back and accept. The deal appears in Kitoblar → Hisobotlar.
-6. **Maslahat.** Press "Bankka ariza yuborish", tick consent and send. Switch to Demo Bank: the same numbers appear, and collateral can be valued live.
-7. **/model.** Raft-Extractor against the cloud model and the rule parser.
+Every number below comes from the backend database, so counts change as Telegram posts arrive and data is edited.
+
+1. **Bugun.** Today's sales against the 30-day average, the pending decisions queue (approve or ignore), the cheapest market finds and the budget warning.
+2. **Narxlar → Ombor.** Stock rated against the market. Select the overpriced units and apply the suggested prices; undo restores the old prices. Export to Excel, CSV or 1C from the backend.
+3. **Narxlar → Baholash.** Type a model, an IMEI or a t.me link (or record voice). The price, its breakdown and the comparable listings come from the market engine.
+4. **Kitoblar.** Audit flags with their calculation; fix or mark as checked. Budget plan vs fact with the month-end forecast, and the month summary under Hisobotlar.
+5. **Birja.** Create or open an RFQ, compare ranked quotes, counter or accept. Switch to TechOpt to answer as the supplier.
+6. **Maslahat.** Ask the copilot; credit, tax, cash flow and loan readiness are calculated in Python. Send a loan application, then switch to Demo Lizing Bank to review it and value collateral.
+7. **/model.** The extraction model in use, its provider order and its share of parsed posts.
 
 ## Checks
 
@@ -73,6 +75,6 @@ npm run a11y
 npm run shots
 ```
 
-`demo:check` walks the click path above, `a11y` runs axe-core and a narrow-width check, and `shots` writes every screen to `docs/screens`. Do not run `npm run build` while `npm run dev` is active: both use `.next`. Set `RAFT_DIST_DIR=.next-prod` to build beside it.
+`demo:check` walks a scripted click path (written for the old demo data; it may need updating), `a11y` runs axe-core and a narrow-width check, and `shots` writes every screen to `docs/screens`. Do not run `npm run build` while `npm run dev` is active: both use `.next`. Set `RAFT_DIST_DIR=.next-prod` to build beside it.
 
 Design and data decisions are recorded in [DECISIONS.md](DECISIONS.md).

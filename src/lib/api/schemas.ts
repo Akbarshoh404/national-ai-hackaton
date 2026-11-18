@@ -1,25 +1,7 @@
 import { z } from "zod";
 
-export const paged = <T extends z.ZodTypeAny>(item: T) =>
-  z.object({ items: z.array(item), next_cursor: z.string().nullable(), total: z.number() });
-
 const KeyValue = z.object({ label: z.string(), value: z.string() });
 export type KeyValue = z.infer<typeof KeyValue>;
-
-export const Decision = z.object({
-  id: z.string(),
-  kind: z.enum(["reprice", "invoice", "raise", "buy"]),
-  short: z.string(),
-  amount: z.string(),
-  title: z.string(),
-  reasons: z.string(),
-  evidence: z.array(KeyValue),
-  action_label: z.string(),
-  status: z.enum(["pending", "approved", "ignored"]),
-  flag_id: z.string().nullable(),
-  unit_id: z.string().nullable(),
-});
-export type Decision = z.infer<typeof Decision>;
 
 export const SalesDay = z.object({
   date: z.string(),
@@ -73,35 +55,6 @@ export type Dashboard = z.infer<typeof Dashboard>;
 export const Rating = z.enum(["under", "fair", "over", "no_data"]);
 export type Rating = z.infer<typeof Rating>;
 
-export const StockUnit = z.object({
-  id: z.string(),
-  model: z.string(),
-  attrs: z.string(),
-  category: z.enum(["phone", "laptop"]),
-  store: z.string(),
-  list_price: z.number(),
-  cost: z.number(),
-  market_price: z.number().nullable(),
-  vs_market_pct: z.number().nullable(),
-  margin: z.number(),
-  days_in_stock: z.number(),
-  expected_days: z.number().nullable(),
-  rating: Rating,
-  suggested_price: z.number().nullable(),
-});
-export type StockUnit = z.infer<typeof StockUnit>;
-
-export const StockSummary = z.object({
-  total: z.number(),
-  value_cost: z.number(),
-  value_market: z.number(),
-  overpriced: z.number(),
-  aging: z.number(),
-  margin_at_risk: z.number(),
-  stores: z.array(z.string()),
-});
-export type StockSummary = z.infer<typeof StockSummary>;
-
 export const RepriceResult = z.object({
   changed: z.array(z.object({ id: z.string(), from: z.number(), to: z.number() })),
 });
@@ -142,17 +95,6 @@ export const PriceVerdict = z.object({
   comparables: z.array(Comparable),
 });
 export type PriceVerdict = z.infer<typeof PriceVerdict>;
-
-export const ParsedInput = z.object({
-  query: z.string(),
-  model: z.string(),
-  detail: z.string(),
-  condition: z.enum(["A", "B", "C"]).nullable(),
-  battery: z.number().nullable(),
-  box: z.boolean().nullable(),
-  source: z.enum(["imei", "text", "link"]),
-});
-export type ParsedInput = z.infer<typeof ParsedInput>;
 
 export const RadarFind = z.object({
   id: z.string(),
@@ -196,21 +138,6 @@ export const Radar = z.object({
 });
 export type Radar = z.infer<typeof Radar>;
 
-export const Quote = z.object({
-  id: z.string(),
-  supplier: z.string(),
-  verification: z.string(),
-  price: z.number(),
-  qty: z.number(),
-  total: z.number(),
-  delivery: z.string(),
-  warranty: z.string(),
-  diff_pct: z.number(),
-  why: z.array(z.object({ text: z.string(), warn: z.boolean() })),
-  recommended: z.boolean(),
-});
-export type Quote = z.infer<typeof Quote>;
-
 export const Deal = z.object({
   id: z.string(),
   label: z.string(),
@@ -224,40 +151,6 @@ export const Deal = z.object({
   date: z.string(),
 });
 export type Deal = z.infer<typeof Deal>;
-
-export const Rfq = z.object({
-  id: z.number(),
-  title: z.string(),
-  specs: z.array(KeyValue),
-  qty: z.number(),
-  market_unit: z.number(),
-  market_total: z.number(),
-  listings: z.number(),
-  created: z.string(),
-  market_dots: z.array(z.number()),
-  quotes: z.array(Quote),
-  note: z.string().nullable(),
-  deal: Deal.nullable(),
-});
-export type Rfq = z.infer<typeof Rfq>;
-
-export const IncomingRfq = z.object({
-  id: z.number(),
-  title: z.string(),
-  spec: z.string(),
-  buyer: z.string(),
-  due: z.string(),
-  qty: z.number(),
-  market_unit: z.number(),
-  p25: z.number(),
-  p75: z.number(),
-  listings: z.number(),
-  time_left: z.string(),
-  urgent: z.boolean(),
-  my_quote: z.number().nullable(),
-  accepted: z.boolean(),
-});
-export type IncomingRfq = z.infer<typeof IncomingRfq>;
 
 export const Lot = z.object({
   id: z.string(),
@@ -312,17 +205,6 @@ export const InvoiceHistory = z.object({
 });
 export type InvoiceHistory = z.infer<typeof InvoiceHistory>;
 
-export const Transaction = z.object({
-  id: z.string(),
-  date: z.string(),
-  title: z.string(),
-  counterparty: z.string(),
-  amount: z.string(),
-  kind: z.enum(["sale", "purchase", "expense", "deal"]),
-  source: z.string(),
-});
-export type Transaction = z.infer<typeof Transaction>;
-
 export const Audit = z.object({
   flags: z.array(AuditFlag),
   total_records: z.number(),
@@ -330,17 +212,6 @@ export const Audit = z.object({
   invoices: z.array(InvoiceHistory),
 });
 export type Audit = z.infer<typeof Audit>;
-
-export const SyncResult = z.object({ message: z.string(), new_flags: z.number() });
-
-export const UploadPreview = z.object({
-  filename: z.string(),
-  rows: z.number(),
-  columns: z.array(z.object({ source: z.string(), target: z.string() })),
-  sample: z.array(z.array(z.string())),
-  targets: z.array(KeyValue),
-});
-export type UploadPreview = z.infer<typeof UploadPreview>;
 
 export const Budget = z.object({
   month: z.string(),
@@ -355,17 +226,6 @@ export type Budget = z.infer<typeof Budget>;
 
 const ScheduleRow = z.object({ month: z.number(), principal: z.number(), interest: z.number(), balance: z.number() });
 export type ScheduleRow = z.infer<typeof ScheduleRow>;
-
-export const Credit = z.object({
-  product: z.string(),
-  amount: z.number(),
-  months: z.number(),
-  rate: z.number(),
-  monthly: z.number(),
-  total_interest: z.number(),
-  schedule: z.array(ScheduleRow),
-});
-export type Credit = z.infer<typeof Credit>;
 
 export const Block = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
@@ -427,9 +287,6 @@ export const Chip = z.object({
 });
 export type Chip = z.infer<typeof Chip>;
 
-export const ChatAnswer = z.object({ blocks: z.array(Block), chips: z.array(Chip) });
-export type ChatAnswer = z.infer<typeof ChatAnswer>;
-
 export const LoanApplication = z.object({
   id: z.string(),
   borrower: z.string(),
@@ -447,15 +304,6 @@ export const LoanApplication = z.object({
 });
 export type LoanApplication = z.infer<typeof LoanApplication>;
 
-export const Readiness = z.object({
-  score: z.number(),
-  factors: z.array(z.object({ name: z.string(), value: z.number() })),
-  tips: z.array(z.object({ text: z.string(), points: z.number() })),
-  tax: z.object({ amount: z.number(), note: z.string() }),
-  application: LoanApplication.nullable(),
-});
-export type Readiness = z.infer<typeof Readiness>;
-
 export const Collateral = z.object({
   id: z.string(),
   object: z.string(),
@@ -466,72 +314,3 @@ export const Collateral = z.object({
   status: z.enum(["normal", "watch", "breach"]),
 });
 export type Collateral = z.infer<typeof Collateral>;
-
-export const CollateralSummary = z.object({
-  portfolio_soum: z.number(),
-  objects: z.number(),
-  avg_ltv: z.number(),
-  ltv_cap: z.number(),
-  watch: z.number(),
-  new_applications: z.number(),
-  revalued_at: z.string(),
-});
-export type CollateralSummary = z.infer<typeof CollateralSummary>;
-
-export const Valuation = z.object({
-  title: z.string(),
-  subtitle: z.string(),
-  fair: z.number(),
-  p25: z.number(),
-  p75: z.number(),
-  liquidation: z.number(),
-  listings: z.number(),
-  window_days: z.number(),
-  change_30d: z.number(),
-  comparables: z.array(z.object({ title: z.string(), meta: z.string(), price: z.number() })),
-});
-export type Valuation = z.infer<typeof Valuation>;
-
-export const MarketReport = z.object({
-  week: z.string(),
-  rows: z.array(
-    z.object({
-      model: z.string(),
-      district: z.string(),
-      median: z.number(),
-      change_7d: z.number(),
-      listings: z.number(),
-      trend: z.array(z.number()),
-    }),
-  ),
-});
-export type MarketReport = z.infer<typeof MarketReport>;
-
-export const Integration = z.object({
-  kind: z.string(),
-  name: z.string(),
-  mode: z.enum(["live", "test"]),
-  detail: z.string(),
-  last_sync: z.string(),
-});
-export type Integration = z.infer<typeof Integration>;
-
-export const ActivityRow = z.object({ time: z.string(), text: z.string(), value: z.string(), actor: z.string() });
-export type ActivityRow = z.infer<typeof ActivityRow>;
-
-export const Meta = z.object({
-  stores: z.array(z.object({ name: z.string(), address: z.string(), units: z.number() })),
-  users: z.array(z.object({ name: z.string(), role: z.string(), last_seen: z.string() })),
-});
-export type Meta = z.infer<typeof Meta>;
-
-export const ModelCard = z.object({
-  name: z.string(),
-  base: z.string(),
-  dataset: z.string(),
-  sample: z.boolean(),
-  metrics: z.array(z.object({ name: z.string(), raft: z.string(), cloud: z.string(), rule: z.string() })),
-});
-export type ModelCard = z.infer<typeof ModelCard>;
-
-export const Ok = z.object({ ok: z.boolean() });
