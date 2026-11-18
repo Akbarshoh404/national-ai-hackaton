@@ -1,8 +1,6 @@
 # Telegram sources. username: TODO = not resolved yet (run `python -m app.cli tg-resolve`).
 # category_hint: phone | laptop | car | house | rent | mixed_tech | mixed_realty | mixed
-# A hint only guides the LLM; the final category is decided per post.
 sources:
-# --- cars -------------------------------------------------------------------
 - title: Avto kredit ⚜️" ST GROUP "⚜️ VIP KANAL
   username: TODO
   category_hint: car
@@ -12,74 +10,70 @@ sources:
   category_hint: car
   seller_type_default: shop
 - title: autoseyll | mashina bozor🚗
-  username: TODO
+  username: autoseyll
   category_hint: car
   seller_type_default: private
-# --- houses for sale: no channels yet (slot kept; mixed_realty sources also feed it) ---
-# --- rent -------------------------------------------------------------------
 - title: BezMakler Kvartiralar
-  username: TODO
+  username: ijaraga_kvartiralar_Bezmakler
   category_hint: rent
   seller_type_default: private
 - title: ARENDA KVARTIRA TOSHKENT || Boboev
-  username: TODO
+  username: Arenda_Kvartira_Boboev
   category_hint: rent
   seller_type_default: private
 - title: 🏙Dom-X АРЕНДА/ТАШКЕНТ
-  username: TODO
+  username: Dom_X_Arenda
   category_hint: rent
   seller_type_default: private
 - title: KVARTIRA l UYLAR
-  username: TODO
+  username: Bardankolarenda9080
   category_hint: mixed_realty
   seller_type_default: private
-# --- phones -----------------------------------------------------------------
 - title: Mix Mobiles
-  username: TODO
+  username: mixmobiles
   category_hint: phone
   seller_type_default: shop
 - title: BlackStore
-  username: TODO
+  username: BlackStoreX
   category_hint: mixed_tech
   seller_type_default: shop
 - title: Pro store
-  username: TODO
+  username: Prostoreuzb
   category_hint: phone
   seller_type_default: shop
 - title: TEXNOMARKAZ
-  username: TODO
+  username: Texnomarkaz_A8
   category_hint: phone
   seller_type_default: shop
 - title: TexnoMarket
-  username: TODO
+  username: texnomarketuzz
   category_hint: phone
   seller_type_default: shop
 - title: iMobile.uz
-  username: TODO
+  username: imobiletg
   category_hint: phone
   seller_type_default: shop
-# --- laptops ----------------------------------------------------------------
 - title: NoutPro Official
-  username: TODO
+  username: Nout_Pro
   category_hint: laptop
   seller_type_default: shop
 - title: Big Store bro
-  username: TODO
+  username: Bigstore_bro_uz
   category_hint: laptop
   seller_type_default: shop
 - title: SmartBook
-  username: TODO
+  username: SmartBookN1
   category_hint: laptop
   seller_type_default: shop
 - title: Macbook_uz
-  username: TODO
+  username: macbook_uzz
   category_hint: laptop
   seller_type_default: shop
 - title: TechnoChain
-  username: TODO
+  username: technochain_uz
   category_hint: laptop
   seller_type_default: shop
 - title: NoutTech.uz
-  username: TODO
+  username: NoutTech_uz
   category_hint: laptop
   seller_type_default: shop
