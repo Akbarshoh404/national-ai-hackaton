@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 from app.core import fx
-from app.core.catalog import norm_model, normalize_district
+from app.core.catalog import MIN_PRICE_UZS, norm_model, normalize_district
 from app.core.config import (
     CAR_DEPRECIATION_PER_YEAR,
     CONDITION_MULTIPLIERS,
@@ -109,7 +109,8 @@ def load_frame(db: Session, category: str) -> pd.DataFrame:
         select(Listing.id, Listing.brand, Listing.model, Listing.model_norm, Listing.condition, Listing.price_uzs,
                Listing.price_usd, Listing.district, Listing.attrs, Listing.seller_type, Listing.posted_at,
                Listing.source_url)
-        .where(Listing.category == category, Listing.is_duplicate.is_(False), Listing.posted_at >= since)
+        .where(Listing.category == category, Listing.is_duplicate.is_(False), Listing.posted_at >= since,
+               Listing.price_uzs >= MIN_PRICE_UZS.get(category, 0))
     ).all()
     records = []
     for r in rows:

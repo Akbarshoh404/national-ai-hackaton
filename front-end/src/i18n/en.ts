@@ -8,9 +8,6 @@ export const en: Dictionary = {
     kitoblar: "Books",
     maslahat: "Advisor",
     sozlama: "Settings",
-    arizalar: "Applications",
-    garov: "Collateral",
-    hisobot: "Report",
     model: "Model card",
   },
   shell: {

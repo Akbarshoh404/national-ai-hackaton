@@ -21,7 +21,16 @@ from sqlalchemy.orm import Session
 
 from app.core import db as dbm
 from app.core import fx, llm, workers
-from app.core.catalog import ATTR_FIELDS, CATEGORIES, CONDITIONS, DISTRICTS, norm_model, normalize_district
+from app.core.catalog import (
+    ATTR_FIELDS,
+    CATEGORIES,
+    CONDITIONS,
+    DISTRICTS,
+    MIN_PRICE_UZS,
+    fix_brand,
+    norm_model,
+    normalize_district,
+)
 from app.core.config import settings
 from app.core.events import bus
 from app.core.models import Listing, RawPost, Source
@@ -318,9 +327,12 @@ def validate(item: dict[str, Any], post: RawPost, source: Source | None) -> tupl
     seller = item.get("seller_type") if item.get("seller_type") in ("shop", "private") else (
         source.seller_type_default if source else "private")
     price_uzs = fx.to_uzs(price, currency)
+    if price_uzs < MIN_PRICE_UZS.get(cat, 0):  # "$1" MacBook: an extraction error, not an offer
+        return None, "implausible_price"
+    brand = fix_brand(model, item.get("brand"))
     username = source.username if source else post.source
-    return {"raw_post_id": post.id, "category": cat, "brand": item.get("brand"), "model": model,
-            "model_norm": norm_model(model, item.get("brand")), "condition": cond, "price": price,
+    return {"raw_post_id": post.id, "category": cat, "brand": brand, "model": model,
+            "model_norm": norm_model(model, brand), "condition": cond, "price": price,
             "currency": currency, "price_uzs": round(price_uzs), "price_usd": round(fx.to_usd(price_uzs), 2),
             "city": item.get("city") or "Toshkent", "district": normalize_district(item.get("district")),
             "attrs": attrs, "seller_type": seller, "posted_at": post.posted_at,

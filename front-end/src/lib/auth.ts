@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 
-export type AccountKind = "business" | "supplier" | "bank" | "bazaar";
+export type AccountKind = "business" | "supplier";
 
 export interface Account {
   id: string;
@@ -11,7 +11,7 @@ export interface Account {
   short: string;
   initials: string;
   role: string;
-  roleCode: "owner" | "manager" | "appraiser" | "supplier" | "lender" | "bazaar";
+  roleCode: "owner" | "manager" | "appraiser" | "supplier";
   kind: AccountKind;
   about: string;
 }
@@ -62,28 +62,6 @@ export const ACCOUNTS: Account[] = [
     kind: "supplier",
     about: "Kelgan so‘rovlar, taklif yuborish va tumanlar bo‘yicha talab.",
   },
-  {
-    id: "demo-bank",
-    key: "demo-demo-bank",
-    name: "Demo Lizing Bank",
-    short: "Demo Lizing Bank",
-    initials: "DL",
-    role: "Bank",
-    roleCode: "lender",
-    kind: "bank",
-    about: "Kredit arizalari, garov qiymati va garov portfeli.",
-  },
-  {
-    id: "bozor-admin",
-    key: "demo-bozor-admin",
-    name: "Malika Bozori Ma’muriyati",
-    short: "Malika bozori",
-    initials: "MB",
-    role: "Bozor ma’muriyati",
-    roleCode: "bazaar",
-    kind: "bazaar",
-    about: "Model va tumanlar bo‘yicha bozor hisoboti.",
-  },
 ];
 
 const STORAGE_KEY = "raft_account";
@@ -128,7 +106,6 @@ export function useAccount(): Account | null | undefined {
 }
 
 export function homeFor(account: Account) {
-  if (account.kind === "bank" || account.kind === "bazaar") return "/partner";
   if (account.kind === "supplier") return "/birja";
   if (account.roleCode === "appraiser") return "/narxlar?tab=baholash";
   return "/bugun";

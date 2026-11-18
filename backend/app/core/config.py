@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     # --- market ---------------------------------------------------------------
     USD_UZS: float = 12700.0
     MARKET_WINDOW_DAYS: int = 60
+    #: categories the app shows (listings, stock, exchange, alerts); empty = all. Data for the others is kept.
+    ACTIVE_CATEGORIES: str = "phone,laptop"
     MIN_COMPARABLES: int = 5
     DEAL_THRESHOLD: float = 0.15
     PRICE_CACHE_TTL_S: float = 20.0
@@ -88,6 +90,11 @@ class Settings(BaseSettings):
             if p in ("local", "gemini", "rules") and p not in out:
                 out.append(p)
         return out or ["rules"]
+
+    @property
+    def active_categories(self) -> list[str]:
+        """Categories shown in the app (ACTIVE_CATEGORIES); empty list = no filter."""
+        return [c.strip().lower() for c in self.ACTIVE_CATEGORIES.split(",") if c.strip()]
 
     @property
     def llm_configured(self) -> bool:

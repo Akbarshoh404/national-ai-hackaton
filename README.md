@@ -299,6 +299,7 @@ Everything comes from environment variables (or `backend/.env`). Defaults are sh
 | `LOCAL_MODEL` | `qwen2.5:3b` | Local model (must be pulled: `ollama pull qwen2.5:3b`) |
 | `LOCAL_TIMEOUT_S` | `30` | Per-post timeout for the local model |
 | `EXTRACT_PROVIDER_ORDER` | `local,gemini,rules` | Extraction / `/input/parse` providers, tried in order |
+| `ACTIVE_CATEGORIES` | `phone,laptop` | Categories the API shows (listings, stock, exchange, alerts, copilot). Empty = all. Car and apartment data is still collected and kept |
 | `USD_UZS` | `12700` | Fallback FX rate (refreshed from cbu.uz via `/admin/fx/refresh`) |
 | `MARKET_WINDOW_DAYS` | `60` | Comparable listings window |
 | `MIN_COMPARABLES` | `5` | Minimum matches for a pricing tier |

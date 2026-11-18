@@ -5,8 +5,6 @@ import {
   ArrowLeftRight,
   Bell,
   BookOpen,
-  FileText,
-  Landmark,
   LayoutGrid,
   MessagesSquare,
   PanelRight,
@@ -81,14 +79,6 @@ export interface NavItem {
 }
 
 export function navFor(account: Account): NavItem[] {
-  if (account.kind === "bank") {
-    return [
-      { href: "/partner", label: "arizalar", icon: FileText, match: "/partner$" },
-      { href: "/partner/garov", label: "garov", icon: Landmark, match: "/partner/garov" },
-      { href: "/partner/hisobot", label: "hisobot", icon: ArrowLeftRight, match: "/partner/hisobot" },
-    ];
-  }
-  if (account.kind === "bazaar") return [{ href: "/partner", label: "hisobot", icon: ArrowLeftRight, match: "/partner" }];
   if (account.kind === "supplier") return [{ href: "/birja", label: "birja", icon: ArrowLeftRight, match: "/birja" }];
   // Appraisers may only use market, pricing and inventory (backend core/permissions.py).
   if (account.roleCode === "appraiser") return [{ href: "/narxlar", label: "narxlar", icon: Tag, match: "/narxlar" }];
@@ -104,9 +94,8 @@ export function navFor(account: Account): NavItem[] {
 function allowed(account: Account, path: string) {
   if (account.roleCode === "appraiser") return path.startsWith("/narxlar");
   if (path === "/model" || path === "/sozlama") return true;
-  if (account.kind === "bank" || account.kind === "bazaar") return path.startsWith("/partner");
   if (account.kind === "supplier") return path.startsWith("/birja");
-  return !path.startsWith("/partner");
+  return true;
 }
 
 function NavLink({ item, active, label }: { item: Pick<NavItem, "href" | "icon">; active: boolean; label: string }) {

@@ -6,9 +6,6 @@ export const uz = {
     kitoblar: "Kitoblar",
     maslahat: "Maslahat",
     sozlama: "Sozlama",
-    arizalar: "Arizalar",
-    garov: "Garov",
-    hisobot: "Hisobot",
     model: "Model kartasi",
   },
   shell: {

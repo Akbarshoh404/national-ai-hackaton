@@ -33,7 +33,7 @@ Each entry records a choice made while building, and why.
 ## Roles
 
 - TechOpt lands on `/birja`, not `/bugun`. Its frame is the supplier workspace, and the shop's dashboard would show another company's numbers.
-- The bazaar administration sees the market report at `/partner`.
+- The bank and bazaar-administration logins (and their `/partner` screens) were removed: the app is for phone and laptop shops and their suppliers.
 - Sergeli Avto appears in the Figma account list but has no key in the prompt, so it is not offered as a login. It still exists as a borrower.
 
 ## Demo flow

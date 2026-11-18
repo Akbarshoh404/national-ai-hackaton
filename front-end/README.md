@@ -32,10 +32,10 @@ npm run gen:api
 |---|---|---|
 | Chilonzor Phone Market, owner | `demo-chilonzor-phone` | `/bugun` |
 | Chilonzor Phone Market, manager | `demo-chilonzor-manager` | `/bugun` |
-| Chilonzor Phone Market, appraiser | `demo-chilonzor-appraiser` | `/bugun` |
+| Chilonzor Phone Market, appraiser | `demo-chilonzor-appraiser` | `/narxlar?tab=baholash` |
 | TechOpt Wholesale, supplier | `demo-techopt` | `/birja` |
-| Demo Lizing Bank | `demo-demo-bank` | `/partner` |
-| Malika bozori, bazaar administration | `demo-bozor-admin` | `/partner` |
+
+The app covers phones and laptops only. The backend hides cars and apartments (`ACTIVE_CATEGORIES=phone,laptop`).
 
 Switch accounts from the avatar at the bottom of the sidebar.
 
@@ -48,7 +48,7 @@ Every number below comes from the backend database, so counts change as Telegram
 3. **Narxlar → Baholash.** Type a model, an IMEI or a t.me link (or record voice). The price, its breakdown and the comparable listings come from the market engine.
 4. **Kitoblar.** Audit flags with their calculation; fix or mark as checked. Budget plan vs fact with the month-end forecast, and the month summary under Hisobotlar.
 5. **Birja.** Create or open an RFQ, compare ranked quotes, counter or accept. Switch to TechOpt to answer as the supplier.
-6. **Maslahat.** Ask the copilot; credit, tax, cash flow and loan readiness are calculated in Python. Send a loan application, then switch to Demo Lizing Bank to review it and value collateral.
+6. **Maslahat.** Ask the copilot; credit, tax, cash flow and loan readiness are calculated in Python. Send a loan application to a partner bank.
 7. **/model.** The extraction model in use, its provider order and its share of parsed posts.
 
 ## Checks

@@ -13,6 +13,21 @@ CATEGORIES = ["phone", "laptop", "car", "house", "rent"]
 CATEGORY_HINTS = ["phone", "laptop", "car", "house", "rent", "mixed_tech", "mixed_realty", "mixed"]
 GOODS_CATEGORIES = {"phone", "laptop", "car"}
 REALTY_CATEGORIES = {"house", "rent"}
+#: below this a listing price is an extraction error ("$1", "12 700 so'm" MacBook), not a real offer
+MIN_PRICE_UZS: dict[str, float] = {"phone": 300_000, "laptop": 1_000_000, "car": 10_000_000}
+
+#: model-name prefixes that fix the maker, whatever the post (or the LLM) said ("Samsung iPhone 14 Pro")
+_BRAND_BY_PREFIX = (("iphone", "Apple"), ("ipad", "Apple"), ("macbook", "Apple"), ("galaxy", "Samsung"),
+                    ("redmi", "Xiaomi"), ("poco", "Xiaomi"))
+
+
+def fix_brand(model: str | None, brand: str | None) -> str | None:
+    """The maker implied by the model name, else `brand` unchanged."""
+    m = (model or "").strip().lower()
+    for prefix, maker in _BRAND_BY_PREFIX:
+        if m.startswith(prefix):
+            return maker
+    return brand
 
 CATEGORY_LABELS: dict[str, dict[str, str]] = {
     "phone": {"uz": "Telefonlar", "ru": "Телефоны", "en": "Phones"},

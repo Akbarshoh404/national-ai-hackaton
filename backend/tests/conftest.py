@@ -24,6 +24,7 @@ os.environ.update({
     "ADMIN_KEY": "test-admin",
     "DEMO_MODE": "true",
     "USD_UZS": "12700",
+    "ACTIVE_CATEGORIES": "",  # tests cover every category; test_categories.py opts in
 })
 
 import pytest  # noqa: E402

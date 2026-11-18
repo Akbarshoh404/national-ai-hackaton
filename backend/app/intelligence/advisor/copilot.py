@@ -10,14 +10,14 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import llm
-from app.core.catalog import TXN_CATEGORY_LABELS, label, norm_model
+from app.core.catalog import CATEGORY_LABELS, TXN_CATEGORY_LABELS, label, norm_model
 from app.core.config import settings
 from app.core.i18n import detect_lang, fmt_uzs
 from app.core.models import Company, InventoryItem, Transaction
@@ -26,14 +26,33 @@ from app.intelligence.b2b import exchange
 from app.intelligence.books import books
 from app.intelligence.market import market, pricing, stock
 
-INTENTS = ["greeting", "price", "stock", "audit", "budget", "cashflow", "credit", "tax", "loan_readiness", "demand",
-           "overview"]
+INTENTS = ["greeting", "price", "stock", "sales", "audit", "budget", "cashflow", "credit", "tax", "loan_readiness",
+           "demand", "unsupported", "overview"]
 
 #: whole-message greetings / thanks (matched on words, so "hi" never fires inside "hisob")
 _GREETING = re.compile(
     r"^\W*(salom|assalomu?\s*alaykum|assalom|xayrli\s+(kun|tong|kech)|rahmat|raxmat|tashakkur|"
     r"привет|здравствуй\w*|добрый\s+(день|вечер|утро)|спасибо|hello|hi|hey|thanks|thank\s+you)\b[\s\W]*"
-    r"(qalaysiz|qalesiz|yaxshimisiz|yaxshimi|как\s+дела|how\s+are\s+you)?[\s\W]*$", re.I)
+    r"(qalaysiz|qalesiz|yaxshimisiz|yaxshimi|как\s+дела|how\s+are\s+you)?[\s\W]*$"
+    # small talk and "what can you do" on their own
+    r"|^\W*(qalaysiz|qalesiz|qalesan|qalaysan|yaxshimisiz|yaxshimisan|ishlar\s+qalay|nima\s+gap|"
+    r"как\s+дела|how\s+are\s+you|nima\s+qila\s+olasan|nima\s+qila\s+olasiz|nimalar\s+qila\s+olasan|"
+    r"sen\s+kimsan|siz\s+kimsiz|что\s+ты\s+умеешь|что\s+умеешь|кто\s+ты|what\s+can\s+you\s+do|"
+    r"who\s+are\s+you|help|yordam)[\s\W]*$", re.I)
+
+#: cars and real estate are switched off (settings.ACTIVE_CATEGORIES); questions about them get a short "no"
+_UNSUPPORTED = {
+    "car": ("mashina", "avtomobil", "avtomashina", "nexia", "cobalt", "gentra", "malibu", "damas", "matiz",
+            "spark", "tracker", "lacetti", "машин", "автомобил", " авто ", " car ", " cars "),
+    "house": ("kvartira", "xonali", "hovli", "uy-joy", "квартир", "недвижим", "apartment", "real estate"),
+}
+
+#: "this month" / "today" in a question → the current (partial) month, not the last complete one
+_THIS_MONTH = re.compile(r"\b(bu|shu)\s+oy|bugun|этот\s+месяц|этом\s+месяце|сегодня|this\s+month|today", re.I)
+
+#: category words for "noutbuk narxlari" (no model named) → a table of top models
+_CATEGORY_WORDS = {"phone": ("telefon", "телефон", "phone", "smartfon", "смартфон"),
+                   "laptop": ("noutbuk", "ноутбук", "laptop", "notebook", "macbook", "kompyuter", "компьютер")}
 
 # order matters: the first matching intent wins
 _RULES: list[tuple[str, tuple[str, ...]]] = [
@@ -50,7 +69,10 @@ _RULES: list[tuple[str, tuple[str, ...]]] = [
     ("demand", ("talab", "спрос", "demand", "nima sotiladi", "ko'p so'ral", "популяр", "most requested",
                 "what sells")),
     ("stock", ("ombor", "склад", "stock", "zaxira", "запас", "inventory", "overpriced", "qimmat", "дорог",
-               "sotilmay", "не продаёт", "не продает", "aging", "eskir")),
+               "sotilmay", "не продаёт", "не продает", "aging", "eskir", "sekin", "qayta belgila", "arzonlat",
+               "reprice", "переоцен", "медленн", "slow")),
+    ("sales", ("sotdim", "sotuv", "savdo", "sotildi", "sotilgan", "продаж", "продал", "выручк", "sales", "sold",
+               "tushum")),
     ("price", ("narx", "цен", "price", "qancha turadi", "сколько стоит", "baho", "оцен", "worth", "nechpul",
                "necha pul", "nech pul", "почём", "почем")),
     ("cashflow", ("pul oqimi", "cash", "foyda", "прибыл", "profit", "daromad", "доход", "income", "оборот",
@@ -118,6 +140,13 @@ _L: dict[str, tuple[str, str, str]] = {
     "chip_lenders": ("Bankka ariza berish", "Подать заявку в банк", "Apply to a lender"),
     "chip_rfqs": ("Kelgan so'rovlar", "Входящие запросы", "Incoming RFQs"),
     "chip_stock": ("Ombor holati", "Состояние склада", "Stock overview"),
+    "sales": ("Sotuv", "Продажи", "Sales"),
+    "today": ("Bugun", "Сегодня", "Today"),
+    "month": ("Shu oy", "Этот месяц", "This month"),
+    "deals_n": ("Sotuvlar soni", "Число продаж", "Sales count"),
+    "chip_books": ("Kitoblarni ochish", "Открыть книги", "Open books"),
+    "chip_phone_prices": ("Telefon narxlari", "Цены на телефоны", "Phone prices"),
+    "chip_laptop_prices": ("Noutbuk narxlari", "Цены на ноутбуки", "Laptop prices"),
 }
 
 
@@ -129,17 +158,24 @@ def chip(key: str, lang: str, endpoint: str, method: str = "GET", body: dict | N
     return {"label": L(key, lang), "action": {"endpoint": endpoint, "method": method, "body": body}}
 
 
+def ask_chip(key: str, lang: str) -> dict[str, Any]:
+    """A chip that asks the copilot its own label as the next question."""
+    return chip(key, lang, "/api/v1/advisor/chat", "POST", {"question": L(key, lang)})
+
+
 # --------------------------------------------------------------------------- #
 # Intent routing                                                                #
 # --------------------------------------------------------------------------- #
 
 _ROUTER_SYSTEM = (
-    "You route one message from a phone/laptop/car shop owner in Uzbekistan (Uzbek, Russian or English) to a tool. "
-    "Tools: greeting (hello, thanks, small talk), price (market price of a product), stock (the shop's own "
-    "inventory), audit (errors in the books), budget (spending limits), cashflow (income, expenses, profit), "
-    "credit (loans), tax, loan_readiness (credit score), demand (what sells), overview (general state of the "
-    "business). Return JSON {\"intent\": \"<tool>\", \"product\": \"<brand and model the message is about, or "
-    "empty>\"}. Never invent numbers."
+    "You route one message from a phone and laptop shop owner in Uzbekistan (Uzbek, Russian or English) to a "
+    "tool. Tools: greeting (hello, thanks, small talk, what can you do), price (market price of a phone or "
+    "laptop), stock (the shop's own inventory, slow or overpriced items, repricing), sales (how much the shop "
+    "sold today or this month), audit (errors in the books), budget (spending limits), cashflow (income, "
+    "expenses, profit), credit (loans), tax, loan_readiness (credit score), demand (what sells on the market), "
+    "unsupported (cars, apartments, anything that is not phones, laptops or this shop's business), overview "
+    "(general state of the business). Return JSON {\"intent\": \"<tool>\", \"product\": \"<brand and model "
+    "the message is about, or empty>\"}. Never invent numbers."
 )
 
 
@@ -179,6 +215,8 @@ def route(question: str, context: dict[str, Any] | None) -> tuple[str, str, str]
     ctx = context or {}
     if _GREETING.match(question.strip()):
         return "greeting", "rules", ""
+    if _unsupported(q):
+        return "unsupported", "rules", ""
     for intent, words in _RULES:
         if any(w in q for w in words):
             if intent == "price" and ctx.get("inventory_ids"):
@@ -194,6 +232,15 @@ def route(question: str, context: dict[str, Any] | None) -> tuple[str, str, str]
     if routed:
         return routed[0], routed[2], routed[1]
     return "overview", "default", ""
+
+
+def _unsupported(q: str) -> bool:
+    """True when the question is about a switched-off category (cars / apartments)."""
+    active = settings.active_categories
+    if not active:
+        return False
+    padded = f" {q} "
+    return any(cat not in active and any(w in padded for w in words) for cat, words in _UNSUPPORTED.items())
 
 
 _AMOUNT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(mlrd|млрд|mln|млн|million|ming|тыс)", re.I)
@@ -236,9 +283,23 @@ def _match_model(db: Session, cats: list[str], text: str) -> tuple[str, dict[str
         for m in market.models(db, cat, None, 200):
             for name in _aliases(m["model_norm"]):
                 hit = re.search(r"(?<![0-9a-z])" + re.escape(name) + r"(?![0-9])", q)
-                if hit and len(name) > best_len:
-                    best, best_len = (cat, m), len(name)
+                if not hit or len(name) <= best_len:
+                    continue
+                after = re.match(r"\s*([a-z]+)", q[hit.end():])
+                if after and after.group(1) in _VARIANT_WORDS:
+                    continue  # "s23 ultra" asked, only "s23" known
+                best, best_len = (cat, m), len(name)
     return best
+
+
+#: words that turn a model into another one ("iPhone 14" vs "iPhone 14 Pro", "S23" vs "S23 Ultra")
+_VARIANT_WORDS = {"pro", "max", "plus", "ultra", "mini", "fe", "lite", "air", "promax", "edge", "fold", "flip"}
+
+#: short condition words for answers ("iPhone 13 128GB, ideal holat")
+_COND_SHORT = {"new": ("yangi", "новый", "new"), "used": ("ishlatilgan", "б/у", "used"),
+               "A": ("ideal holat", "идеальное состояние", "like new"),
+               "B": ("yaxshi holat", "хорошее состояние", "good condition"),
+               "C": ("o'rtacha holat", "среднее состояние", "fair condition")}
 
 
 #: series words people often leave out ("Samsung A54" for "Galaxy A54")
@@ -256,22 +317,72 @@ def _aliases(name: str | None) -> list[str]:
     return out
 
 
+def _price_categories(company: Company) -> list[str]:
+    cats = list(dict.fromkeys([*(company.categories or []), "phone", "laptop"]))
+    active = settings.active_categories
+    return [c for c in cats if c in ("phone", "laptop", "car") and (not active or c in active)]
+
+
+def _category_in(text: str, cats: list[str]) -> str | None:
+    q = text.lower()
+    for cat in cats:
+        if any(w in q for w in _CATEGORY_WORDS.get(cat, ())):
+            return cat
+    return None
+
+
+def tool_category_prices(db: Session, cat: str, lang: str) -> tuple:
+    """Top models of a category with their market price (the question names a category, not a model)."""
+    rows: list[list[Any]] = []
+    for m in market.models(db, cat, None, 12):
+        typ = market.typical_config(db, cat, m["model_norm"])
+        est = pricing.try_estimate(db, category=cat, model=typ["model"], brand=typ["brand"],
+                                   condition=typ["condition"], attrs=typ["attrs"], lang=lang)
+        if est and est.fair_price_uzs:
+            rows.append([" ".join(x for x in (typ["brand"], typ["model"]) if x), est.fair_price_uzs,
+                         est.comparables])
+        if len(rows) == 8:
+            break
+    cat_label = label(CATEGORY_LABELS, cat, lang)
+    blocks = [{"type": "table", "title": cat_label,
+               "columns": [L("model", lang), L("fair", lang), L("listings", lang)], "rows": rows}]
+    other = "laptop" if cat == "phone" else "phone"
+    chips = [ask_chip(f"chip_{other}_prices", lang),
+             chip("chip_stock", lang, "/api/v1/stock/summary")]
+    top = rows[0] if rows else None
+    return blocks, chips, {"_intent": "price_list" if top else "no_model", "category": cat_label, "n": len(rows),
+                           "top": top[0] if top else "", "top_price": top[1] if top else None}
+
+
 def tool_price(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
-    cats = list(dict.fromkeys([*(company.categories or []), "phone", "laptop", "car"]))
+    cats = _price_categories(company)
     best = _match_model(db, cats, question)
     if best is None and ctx.get("_product"):  # product named by the local model / Gemini router
         best = _match_model(db, cats, ctx["_product"])
     if best is None:
-        return tool_overview(db, company, question, ctx, lang)
+        cat = _category_in(question, cats)
+        if cat:
+            return tool_category_prices(db, cat, lang)
+        if re.search(r"\d", question):  # a model was named but the market has no listings for it
+            return [], [ask_chip("chip_phone_prices", lang), ask_chip("chip_laptop_prices", lang)], {
+                "_intent": "no_data", "title": {"uz": "Bu model", "ru": "Эта модель", "en": "This model"}[lang]}
+        return [], [ask_chip("chip_phone_prices", lang),
+                    ask_chip("chip_laptop_prices", lang)], {"_intent": "no_model"}
     cat, m = best
     typ = market.typical_config(db, cat, m["model_norm"])
     attrs = dict(typ["attrs"])
     sm = re.search(r"\b(64|128|256|512)\s*(gb|гб)?\b", question, re.I)
     if sm and cat == "phone":
         attrs["storage_gb"] = int(sm.group(1))
-    est = pricing.estimate(db, cat, typ["model"], typ["condition"], attrs=attrs, brand=typ["brand"], lang=lang)
+    est = pricing.try_estimate(db, category=cat, model=typ["model"], condition=typ["condition"], attrs=attrs,
+                               brand=typ["brand"], lang=lang)
+    cond = _COND_SHORT.get(typ["condition"] or "")
     title = " ".join(x for x in (typ["brand"], typ["model"], f"{attrs.get('storage_gb')}GB" if attrs.get(
-        "storage_gb") else None, typ["condition"]) if x)
+        "storage_gb") else None) if x)
+    if est is None or not est.fair_price_uzs:
+        return [], [ask_chip("chip_phone_prices", lang), ask_chip("chip_laptop_prices", lang)], {
+            "_intent": "no_data", "title": title}
+    title += f", {cond[{'uz': 0, 'ru': 1, 'en': 2}[lang]]}" if cond else ""
     chips = [chip("chip_trend", lang, f"/api/v1/market/trend?category={cat}&model={typ['model']}"),
              chip("chip_stock", lang, "/api/v1/stock/summary")]
     return _price_blocks(est, title, lang), chips, {"title": title, "fair": est.fair_price_uzs,
@@ -363,7 +474,8 @@ def tool_budget(db: Session, company: Company, question: str, ctx: dict[str, Any
 def tool_cashflow(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
     cf = finance.cashflow(db, company.id, 6)
     avg = finance.avg_net(db, company.id)
-    last = [r for r in cf if not r["partial"]][-1] if len(cf) > 1 else cf[-1]
+    this_month = bool(_THIS_MONTH.search(question)) or len(cf) == 1
+    last = cf[-1] if this_month else [r for r in cf if not r["partial"]][-1]
     blocks = [{"type": "line_chart", "title": L("cashflow", lang), "x": [r["month"] for r in cf],
                "series": [{"name": L("income", lang), "values": [r["income_uzs"] for r in cf]},
                           {"name": L("expense", lang), "values": [r["expense_uzs"] for r in cf]},
@@ -375,7 +487,46 @@ def tool_cashflow(db: Session, company: Company, question: str, ctx: dict[str, A
                   {"label": L("avg_net", lang), "value_uzs": round(avg)}]}]
     chips = [chip("chip_cashflow", lang, "/api/v1/advisor/cashflow?months=12"),
              chip("chip_readiness", lang, "/api/v1/advisor/loan-readiness")]
-    return blocks, chips, {"month": last["month"], "net": last["net_uzs"], "avg": round(avg)}
+    return blocks, chips, {"month": last["month"], "net": last["net_uzs"], "avg": round(avg),
+                           "income": last["income_uzs"], "expense": last["expense_uzs"],
+                           "partial": last["partial"]}
+
+
+def tool_sales(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
+    """Sales (income / sale transactions): today, this month, and the last 14 days as a chart."""
+    today = date.today()
+    month_start = today.replace(day=1)
+    start = min(month_start, today - timedelta(days=13))
+    txs = db.scalars(select(Transaction).where(Transaction.company_id == company.id, Transaction.type == "income",
+                                               Transaction.category == "sale", Transaction.date >= start)).all()
+    days = [today - timedelta(days=i) for i in range(13, -1, -1)]
+    by_day = {d: 0.0 for d in days}
+    t_sum = t_qty = m_sum = m_qty = 0.0
+    for tx in txs:
+        if tx.date in by_day:
+            by_day[tx.date] += tx.total
+        if tx.date == today:
+            t_sum += tx.total
+            t_qty += tx.qty or 1
+        if tx.date >= month_start:
+            m_sum += tx.total
+            m_qty += tx.qty or 1
+    blocks = [{"type": "kpi_row", "title": L("sales", lang), "items": [
+                  {"label": L("today", lang), "value_uzs": round(t_sum)},
+                  {"label": L("month", lang), "value_uzs": round(m_sum)},
+                  {"label": L("deals_n", lang), "value": int(m_qty)}]},
+              {"type": "bar_chart", "title": L("sales", lang), "x": [d.strftime("%d.%m") for d in days],
+               "series": [{"name": L("sales", lang), "values": [round(by_day[d]) for d in days]}]}]
+    chips = [chip("chip_books", lang, "/api/v1/books/transactions?type=income"),
+             chip("chip_cashflow", lang, "/api/v1/advisor/cashflow?months=12")]
+    return blocks, chips, {"today": round(t_sum), "today_n": int(t_qty), "month_sum": round(m_sum),
+                           "month_n": int(m_qty)}
+
+
+def tool_unsupported(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
+    chips = [ask_chip("chip_phone_prices", lang),
+             ask_chip("chip_laptop_prices", lang)]
+    return [], chips, {}
 
 
 def tool_credit(db: Session, company: Company, question: str, ctx: dict[str, Any], lang: str) -> tuple:
@@ -464,7 +615,7 @@ def tool_greeting(db: Session, company: Company, question: str, ctx: dict[str, A
     return [], chips, {"name": company.name, "_intent": "thanks" if thanks else "greeting"}
 
 
-TOOLS = {"greeting": tool_greeting,
+TOOLS = {"greeting": tool_greeting, "sales": tool_sales, "unsupported": tool_unsupported,
          "price": tool_price, "stock": tool_stock, "audit": tool_audit, "budget": tool_budget,
          "cashflow": tool_cashflow, "credit": tool_credit, "tax": tool_tax, "loan_readiness": tool_loan_readiness,
          "demand": tool_demand,
@@ -492,9 +643,34 @@ def template_answer(intent: str, f: dict[str, Any], lang: str) -> str:
         "budget": (f"Byudjet {f.get('used')}% ishlatilgan, {f.get('problems')} ta toifada muammo. {f.get('first')}",
                    f"Бюджет использован на {f.get('used')}%, проблемных статей: {f.get('problems')}. {f.get('first')}",
                    f"Budget is {f.get('used')}% used with {f.get('problems')} problem categories. {f.get('first')}"),
-        "cashflow": (f"{f.get('month')} sof natija {m(f.get('net'))}; o'rtacha oylik sof {m(f.get('avg'))}.",
-                     f"Чистый результат за {f.get('month')}: {m(f.get('net'))}; в среднем {m(f.get('avg'))} в месяц.",
-                     f"Net result for {f.get('month')}: {m(f.get('net'))}; average {m(f.get('avg'))} per month."),
+        "cashflow": (f"{f.get('month')}{' (hozircha)' if f.get('partial') else ''}: tushum {m(f.get('income'))}, "
+                     f"xarajat {m(f.get('expense'))}, sof natija {m(f.get('net'))}. "
+                     f"O'rtacha oylik sof {m(f.get('avg'))}.",
+                     f"{f.get('month')}{' (пока)' if f.get('partial') else ''}: доходы {m(f.get('income'))}, "
+                     f"расходы {m(f.get('expense'))}, чистыми {m(f.get('net'))}. В среднем {m(f.get('avg'))} в месяц.",
+                     f"{f.get('month')}{' (so far)' if f.get('partial') else ''}: income {m(f.get('income'))}, "
+                     f"expenses {m(f.get('expense'))}, net {m(f.get('net'))}. Average {m(f.get('avg'))} per month."),
+        "sales": (f"Bugun {f.get('today_n')} ta sotuv, {m(f.get('today'))}. Shu oy {f.get('month_n')} ta, "
+                  f"{m(f.get('month_sum'))}.",
+                  f"Сегодня {f.get('today_n')} продаж на {m(f.get('today'))}. В этом месяце {f.get('month_n')} на "
+                  f"{m(f.get('month_sum'))}.",
+                  f"Today {f.get('today_n')} sales for {m(f.get('today'))}. This month {f.get('month_n')} for "
+                  f"{m(f.get('month_sum'))}."),
+        "price_list": (f"{f.get('category')}: {f.get('n')} ta ommabop model. Eng ko'p e'lon qilingani "
+                       f"{f.get('top')}, bozor narxi {m(f.get('top_price'))}.",
+                       f"{f.get('category')}: {f.get('n')} популярных моделей. Больше всего объявлений у "
+                       f"{f.get('top')}, рыночная цена {m(f.get('top_price'))}.",
+                       f"{f.get('category')}: {f.get('n')} popular models. Most listed is {f.get('top')}, market "
+                       f"price {m(f.get('top_price'))}."),
+        "no_model": ("Qaysi model? Masalan: “iPhone 13 narxi” yoki “MacBook Air M1 qancha”.",
+                     "Какая модель? Например: «цена iPhone 13» или «сколько стоит MacBook Air M1».",
+                     "Which model? For example: “iPhone 13 price” or “MacBook Air M1 price”."),
+        "no_data": (f"{f.get('title')}: bozorda hozircha yetarli e'lon yo'q, narxni aytolmayman.",
+                    f"{f.get('title')}: на рынке пока мало объявлений, цену назвать не могу.",
+                    f"{f.get('title')}: not enough market listings yet to give a price."),
+        "unsupported": ("Men faqat telefon, noutbuk va do'koningiz hisobi bo'yicha yordam beraman.",
+                        "Я помогаю только с телефонами, ноутбуками и учётом вашего магазина.",
+                        "I only cover phones, laptops and your shop's books."),
         "credit": (f"{m(f.get('principal'))} {f.get('months')} oyga: oylik to'lov {m(f.get('payment'))}. "
                    f"{'Ko‘tara olasiz' if f.get('affordable') else 'Yuklama yuqori'}, "
                    f"maksimal kredit {m(f.get('max'))}.",
@@ -523,7 +699,7 @@ def template_answer(intent: str, f: dict[str, Any], lang: str) -> str:
                      f"This month's net is {m(f.get('net'))}, {f.get('issues')} audit issues, loan readiness "
                      f"{f.get('score')}/100."),
     }
-    key = "stock_one" if intent == "stock" and "vs" in f else intent
+    key = "stock_one" if intent == "stock" and "vs" in f else f.get("_intent") or intent
     return T[key][{"uz": 0, "ru": 1, "en": 2}[lang]].strip()
 
 
@@ -544,10 +720,8 @@ def answer(db: Session, company: Company, question: str, history: list[dict[str,
     intent, how, product = route(question, context)
     ctx = {**(context or {}), "_product": product}
     blocks, chips, facts = TOOLS[intent](db, company, question, ctx, lang)
-    if facts.get("_intent"):
-        intent = facts["_intent"]
-    if intent == "price" and "fair" not in facts:  # price fell back to overview
-        intent = "overview"
+    if facts.get("_intent") == "thanks":
+        intent = "thanks"
     text = template_answer(intent, facts, lang)
     source = "rules"
     order = [p for p in settings.provider_order if p != "rules"]

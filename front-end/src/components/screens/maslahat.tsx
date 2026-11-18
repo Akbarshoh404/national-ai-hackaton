@@ -18,13 +18,13 @@ import { useApplyLoan, useCredit, useLenders, useMyLoanApplications, useReadines
 import { mln, num, shortSoum, soum } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+/** Products offered in the calculator (phone and laptop shops: no car loans or mortgages). */
 const PRODUCTS: { value: CreditProduct; label: string }[] = [
   { value: "business_loan", label: "Biznes krediti" },
-  { value: "auto_loan", label: "Avto kredit" },
-  { value: "mortgage", label: "Ipoteka" },
   { value: "leasing", label: "Lizing" },
 ];
-const productLabel = (p: string) => PRODUCTS.find((x) => x.value === p)?.label ?? p;
+const PRODUCT_LABEL: Record<string, string> = { business_loan: "Biznes krediti", auto_loan: "Avto kredit", mortgage: "Ipoteka", leasing: "Lizing" };
+const productLabel = (p: string) => PRODUCT_LABEL[p] ?? p;
 
 /** Loan terms shared by the calculator and the application dialog. */
 interface Terms {

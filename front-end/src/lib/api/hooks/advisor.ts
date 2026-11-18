@@ -49,12 +49,14 @@ const SCREEN_FOR: [RegExp, string][] = [
 const ANSWER_CHIPS = [/^\/advisor\/credit$/, /^\/advisor\/loan-readiness$/, /^\/advisor\/tax$/, /^\/advisor\/cashflow(\?|$)/];
 const ACTION_CHIPS = [/^\/stock\/reprice$/, /^\/stock\/list-on-exchange$/];
 
-export type ChipKind = { kind: "answer" } | { kind: "action" } | { kind: "navigate"; href: string };
+export type ChipKind = { kind: "answer" } | { kind: "action" } | { kind: "navigate"; href: string } | { kind: "ask"; question: string };
 
 /** What clicking a chip does; null for chips the UI cannot run (they are not shown). */
 export function chipKind(chip: A.Chip): ChipKind | null {
   const path = stripPrefix(chip.action.endpoint);
   const method = chip.action.method;
+  const question = chip.action.body?.question;
+  if (path === "/advisor/chat" && typeof question === "string") return { kind: "ask", question };
   if (ANSWER_CHIPS.some((re) => re.test(path))) return { kind: "answer" };
   if (method === "POST" && ACTION_CHIPS.some((re) => re.test(path))) return { kind: "action" };
   if (method === "GET") {

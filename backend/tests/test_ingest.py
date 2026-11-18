@@ -163,13 +163,25 @@ def test_repost_and_deal_alert(client, mock_llm):
 
 def test_outlier_rejected(client, mock_llm):
     with dbm.SessionLocal() as db:
-        p = _post(db, "testphones", 200, "iPhone 14 128gb A $5 ideal holat")
+        p = _post(db, "testphones", 200, "iPhone 14 128gb A $50 ideal holat")
     mock_llm(lambda prompt, n: [{"i": 0, "skip": False, "category": "phone", "brand": "Apple", "model": "iPhone 14",
-                                 "condition": "A", "price": 5, "currency": "USD", "attrs": {"storage_gb": 128}}])
+                                 "condition": "A", "price": 50, "currency": "USD", "attrs": {"storage_gb": 128}}])
     with dbm.SessionLocal() as db:
         extractor.run_once(db)
         post = db.get(RawPost, p.id)
         assert post.processed == extractor.SKIPPED and post.error == "price_outlier"
+
+
+def test_implausible_price_rejected(client, mock_llm):
+    """Below the category floor ("$5 iPhone", "$1 MacBook") is an extraction error, skipped before pricing."""
+    with dbm.SessionLocal() as db:
+        p = _post(db, "testphones", 201, "MacBook Pro M1 ideal holat, narxi 1$")
+    mock_llm(lambda prompt, n: [{"i": 0, "skip": False, "category": "laptop", "brand": "Apple", "model": "MacBook Pro",
+                                 "condition": "new", "price": 1, "currency": "USD", "attrs": {}}])
+    with dbm.SessionLocal() as db:
+        extractor.run_once(db)
+        post = db.get(RawPost, p.id)
+        assert post.processed == extractor.SKIPPED and post.error == "implausible_price"
 
 
 def test_rule_fallback_without_llm(client):

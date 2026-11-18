@@ -75,6 +75,10 @@ export function Conversation({
       router.push(kind.href);
       return;
     }
+    if (kind.kind === "ask") {
+      ask(kind.question);
+      return;
+    }
     setFailed(null);
     setMessages((m) => [...m, userMessage(chip.label)]);
     const attempt = () => {

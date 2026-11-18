@@ -15,8 +15,6 @@ const FILTERS: { key: "all" | RadarCategory; label: string }[] = [
   { key: "all", label: "Hammasi" },
   { key: "phone", label: "Telefon" },
   { key: "laptop", label: "Noutbuk" },
-  { key: "car", label: "Avto" },
-  { key: "realty", label: "Ko‘chmas mulk" },
 ];
 
 /** "12 daq oldin", "3 soat oldin", "2 kun oldin". */

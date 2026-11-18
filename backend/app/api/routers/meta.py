@@ -44,7 +44,8 @@ def meta_get(db: DbDep, company: OptionalCompanyDep) -> MetaResponse:
                 for c in db.scalars(select(Company).where(Company.slug.is_not(None)).order_by(Company.id))
                 if c.slug]
     return MetaResponse(
-        categories=_cl(catalog.CATEGORY_LABELS, catalog.CATEGORIES),
+        categories=_cl(catalog.CATEGORY_LABELS, [c for c in catalog.CATEGORIES
+                                                 if not settings.active_categories or c in settings.active_categories]),
         conditions={cat: _cl(catalog.CONDITION_LABELS, conds) for cat, conds in catalog.CONDITIONS.items()},
         attributes={cat: [AttrField(**f) for f in fields] for cat, fields in catalog.ATTR_FIELDS.items()},
         expense_categories=_cl(catalog.TXN_CATEGORY_LABELS, catalog.EXPENSE_CATEGORIES),

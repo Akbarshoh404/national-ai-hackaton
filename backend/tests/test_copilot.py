@@ -206,3 +206,60 @@ def test_chat_suggestion_answers(client, chilonzor):
         out = client.post("/api/v1/advisor/chat", headers=chilonzor,
                           json={"question": s["question"], "context": {"screen": "advisor"}}).json()
         assert out["intent"] == s["intent"] and out["blocks"]
+
+
+@pytest.mark.parametrize("question", ["qalesan", "Nima qila olasan?", "ishlar qalay", "что ты умеешь"])
+def test_small_talk_is_a_greeting(client, chilonzor, question):
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": question}).json()
+    assert d["intent"] == "greeting" and d["intent_source"] == "rules"
+
+
+@pytest.mark.parametrize(("question", "intent"), [
+    ("bugun qancha sotdim", "sales"), ("Сколько продаж в этом месяце?", "sales"),
+    ("qaysi tovar sekin sotilyapti", "stock"), ("narxni qayta belgilash kerakmi", "stock"),
+])
+def test_sales_and_stock_questions(client, chilonzor, question, intent):
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": question}).json()
+    assert d["intent"] == intent
+    assert d["blocks"]
+
+
+def test_sales_answer_has_today_and_month(client, chilonzor):
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": "bugun qancha sotdim"}).json()
+    assert d["answer"].startswith("Bugun") and "Shu oy" in d["answer"]
+    assert d["blocks"][0]["type"] == "kpi_row" and d["blocks"][1]["type"] == "bar_chart"
+
+
+def test_this_month_profit_uses_current_month(client, chilonzor):
+    from datetime import date
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": "bu oy foyda qancha"}).json()
+    assert d["intent"] == "cashflow"
+    assert d["answer"].startswith(date.today().strftime("%Y-%m"))
+    assert "tushum" in d["answer"] and "xarajat" in d["answer"]
+
+
+def test_category_price_question_lists_models(client, chilonzor):
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": "telefon narxlari qanday"}).json()
+    assert d["intent"] == "price"
+    assert d["blocks"][0]["type"] == "table" and d["blocks"][0]["rows"]
+
+
+def test_price_without_model_asks_which_one(client, chilonzor):
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": "narxi qancha"}).json()
+    assert d["intent"] == "price" and "Qaysi model" in d["answer"]
+    asks = [c for c in d["chips"] if c["action"]["endpoint"] == "/api/v1/advisor/chat"]
+    assert asks and all(c["action"]["body"]["question"] == c["label"] for c in asks)
+
+
+def test_unknown_variant_is_not_priced_as_the_base_model(client, chilonzor):
+    """"S23 Ultra" must not get the plain S23 price; a model with no data says so instead of failing."""
+    d = client.post("/api/v1/advisor/chat", headers=chilonzor, json={"question": "Galaxy A54 Ultra narxi"}).json()
+    assert d["intent"] == "price" and not d["blocks"]
+    assert "yetarli e'lon yo'q" in d["answer"]
+
+
+def test_brand_follows_model_name():
+    from app.core.catalog import fix_brand
+    assert fix_brand("iPhone 14 Pro", "Samsung") == "Apple"
+    assert fix_brand("Galaxy A54", None) == "Samsung"
+    assert fix_brand("ThinkPad X1", "Lenovo") == "Lenovo"

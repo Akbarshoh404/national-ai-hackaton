@@ -72,9 +72,41 @@ def configure(url: str) -> None:
     SessionLocal.configure(bind=engine)
 
 
+#: Session.info flag: hide rows of categories outside settings.ACTIVE_CATEGORIES.
+CATEGORY_SCOPE = "category_scope"
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _active_categories_only(state: Any) -> None:
+    """Hide car / house / rent rows (anything outside ACTIVE_CATEGORIES) from API sessions.
+
+    Only sessions created by `get_db` carry the flag, so the Telegram, extractor and decision workers still
+    read and write every category; the data is kept and comes back as soon as the setting allows it.
+    """
+    cats = settings.active_categories
+    if not cats or not state.is_select or not state.session.info.get(CATEGORY_SCOPE):
+        return
+    from sqlalchemy import case, or_
+    from sqlalchemy.orm import with_loader_criteria
+
+    from app.core import models as m
+    from app.core.catalog import MIN_PRICE_UZS
+
+    # listings also drop prices below the category floor ("$1 MacBook"): extraction errors, not offers
+    floor = case(*[(m.Listing.category == c, v) for c, v in MIN_PRICE_UZS.items()], else_=0)
+    opts = [with_loader_criteria(m.Listing, lambda cls: cls.category.in_(cats) & (cls.price_uzs >= floor),
+                                 include_aliases=True)]
+    opts += [with_loader_criteria(model, lambda cls: cls.category.in_(cats), include_aliases=True)
+             for model in (m.InventoryItem, m.Rfq, m.Offer, m.Deal, m.Collateral)]
+    opts.append(with_loader_criteria(m.Alert, lambda cls: or_(cls.category.is_(None), cls.category.in_(cats)),
+                                     include_aliases=True))
+    state.statement = state.statement.options(*opts)
+
+
 def get_db() -> Iterator[Session]:
-    """FastAPI dependency yielding a session that is always closed."""
+    """FastAPI dependency yielding a session that is always closed (scoped to the active categories)."""
     db = SessionLocal()
+    db.info[CATEGORY_SCOPE] = True
     try:
         yield db
     finally:
